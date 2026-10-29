@@ -1,0 +1,500 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>우시 서류 판독</title>
+<link rel="stylesheet" href="static/wuxi.css">
+<style>
+.layout{display:grid;grid-template-columns:300px minmax(0,1fr);gap:18px;padding:18px 22px 30px;max-width:1800px;margin:0 auto}
+.side{display:grid;gap:14px;align-content:start}
+.drop{display:block;border:1.5px dashed var(--line2);border-radius:var(--r);padding:18px 14px;text-align:center;cursor:pointer;background:#fbfcfd;transition:.12s}
+.drop:hover,.drop.over{border-color:var(--accent);background:var(--accent-soft)}
+.drop b{display:block;font-size:14px;margin-bottom:2px}
+.drop span{color:var(--muted);font-size:12.5px}
+.files{list-style:none;margin:10px 0 0;padding:0;display:grid;gap:4px;font-size:12.5px;max-height:180px;overflow:auto}
+.files li{display:flex;gap:8px;align-items:center}
+.files li span:first-child{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.jobs{list-style:none;margin:0;padding:0;display:grid;gap:2px;align-content:start;max-height:calc(100vh - 420px);min-height:120px;overflow:auto}
+.jobs li{padding:8px 10px;border-radius:8px;cursor:pointer;display:grid;gap:2px}
+.jobs li:hover{background:var(--bg)}
+.jobs li.on{background:var(--accent-soft)}
+.jobs .l1{display:flex;gap:7px;align-items:center;font-weight:600;font-size:13px;min-width:0}
+.jobs .l1 span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0}
+.jobs .l2{color:var(--muted);font-size:12px;display:flex;gap:8px}
+.res-head{display:flex;gap:16px;align-items:flex-start;flex-wrap:wrap;margin-bottom:12px}
+.res-head h2{margin:0;font-size:18px}
+.res-head .meta{color:var(--muted);font-size:12.5px;margin-top:2px}
+.res-head .acts{display:flex;gap:8px;flex-wrap:wrap;margin-left:auto;align-items:center}
+.checks{display:flex;gap:6px;flex-wrap:wrap;margin-top:8px}
+.banner{margin-bottom:12px;display:grid;gap:8px}
+.banner .note .row{margin-top:8px}
+.banner ul{margin:4px 0 0;padding-left:18px}
+.split{display:grid;grid-template-columns:minmax(0,1fr) minmax(320px,38%);gap:14px;align-items:start}
+.split.nopdf{grid-template-columns:minmax(0,1fr)}
+.tpane{min-width:0}
+.items-wrap{max-height:calc(100vh - 330px);min-height:240px}
+table.items{font-size:12.5px}
+table.items th,table.items td{padding:5px 8px;white-space:nowrap}
+table.items td[contenteditable]{cursor:text;min-width:48px}
+table.items td[contenteditable]:focus{outline:2px solid var(--accent);outline-offset:-2px;background:#fff}
+table.items td.gerp{background:#f6f7f9;color:var(--muted)}
+table.items td.edited{background:var(--edit)}
+table.items td.ruled{box-shadow:inset 3px 0 0 var(--rule)}
+table.items tr.gap td.no{box-shadow:inset 3px 0 0 var(--warn)}
+table.items tr.added td{background:#f4f8ff}
+table.items tr.sel td{background:var(--accent-soft)}
+table.items td.no{color:var(--muted);font-variant-numeric:tabular-nums;position:sticky;left:0;background:#fff;z-index:1}
+table.items tr.sel td.no{background:var(--accent-soft)}
+table.items th.no{position:sticky;left:0;z-index:2}
+table.items .del{border:0;background:none;color:var(--muted);cursor:pointer;padding:0 4px;font-size:14px;line-height:1;visibility:hidden}
+table.items tr:hover .del,table.items tr.sel .del{visibility:visible}
+table.items .del:hover{color:var(--bad)}
+.legend{display:flex;gap:14px;flex-wrap:wrap;color:var(--muted);font-size:12px;margin:8px 0 0}
+.legend i{display:inline-block;width:12px;height:12px;border-radius:3px;vertical-align:-2px;margin-right:5px}
+.under{display:flex;gap:8px;align-items:center;margin-top:8px;flex-wrap:wrap}
+details.more{margin-top:12px}
+details.more summary{cursor:pointer;color:var(--ink2);font-weight:600;font-size:13px;padding:6px 0}
+.ppane{position:sticky;top:76px;max-height:calc(100vh - 96px);overflow:auto;border:1px solid var(--line);border-radius:var(--r-s);background:#eef0f3;padding:10px}
+.ppane .ph{display:flex;align-items:center;gap:8px;margin:0 2px 8px;font-size:12.5px;color:var(--ink2);font-weight:600}
+.pg{position:relative;margin:0 0 10px;background:#fff;box-shadow:0 1px 3px rgba(0,0,0,.12)}
+.pg canvas{display:block;width:100%;height:auto}
+.pg .lbl{position:absolute;top:4px;left:6px;font-size:11px;color:var(--muted);background:rgba(255,255,255,.85);padding:0 5px;border-radius:4px}
+.hl{position:absolute;background:rgba(253,186,64,.38);border:1.5px solid #e0a020;border-radius:2px;pointer-events:none}
+.guide{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px;margin-top:14px;text-align:left}
+.guide div{background:#fff;border:1px solid var(--line);border-radius:var(--r);padding:14px}
+.guide b{display:block;margin-bottom:4px}
+.guide span{color:var(--muted);font-size:12.5px}
+@media screen and (max-width:1100px){.split{grid-template-columns:minmax(0,1fr)}.ppane{position:static;max-height:70vh}}
+@media screen and (max-width:760px){.layout{grid-template-columns:minmax(0,1fr)}.guide{grid-template-columns:minmax(0,1fr)}.jobs{max-height:260px}}
+</style>
+</head>
+<body>
+
+<div id="gate" class="gate" hidden>
+  <div class="card">
+    <h1>우시 서류 판독</h1>
+    <p>공급사 서류를 올리면 G-ERP 「B/L Item Update」 품목 표로 만듭니다.</p>
+    <form id="loginForm" class="form">
+      <label class="f">비밀번호<input id="pw" class="in" type="password" autocomplete="current-password" required></label>
+      <div class="err" id="loginErr"></div>
+      <button class="btn pri" type="submit">들어가기</button>
+    </form>
+  </div>
+</div>
+
+<div id="app" hidden>
+  <header class="top">
+    <h1>우시 서류 판독</h1>
+    <span class="sub">공급사 서류를 올리면 G-ERP 「B/L Item Update」 품목 표로 만듭니다</span>
+    <span class="sp"></span>
+    <a id="toAdmin" class="btn ghost" href="admin" hidden>운영 화면</a>
+    <button id="logout" class="btn ghost" type="button">나가기</button>
+  </header>
+
+  <div class="layout">
+    <aside class="side">
+      <div class="card">
+        <h2>서류 올리기</h2>
+        <p class="desc">한 묶음(인보이스, 포장명세서, 통관 용도설명서, 운송장)을 한 번에 올립니다.</p>
+        <label class="drop" id="drop" for="file">
+          <b>PDF를 끌어다 놓거나 눌러서 고르십시오</b>
+          <span id="limits">파일 30개, 하나에 40MB까지</span>
+        </label>
+        <input id="file" type="file" accept="application/pdf,.pdf" multiple hidden>
+        <ul class="files" id="picked"></ul>
+        <div class="err" id="upErr"></div>
+        <button class="btn pri" id="upBtn" type="button" style="width:100%;justify-content:center;margin-top:6px" disabled>읽기 시작</button>
+      </div>
+      <div class="card" style="padding:14px 10px 10px">
+        <h2 style="padding:0 8px">최근 작업</h2>
+        <p class="desc" style="padding:0 8px" id="keep">올린 서류와 결과는 14일 뒤 지웁니다.</p>
+        <ul class="jobs" id="jobs"></ul>
+      </div>
+    </aside>
+
+    <main id="main">
+      <section id="vEmpty" class="card">
+        <div class="empty">
+          <b>왼쪽에서 서류 묶음을 올리십시오</b>
+          품목 줄을 읽어 표로 만듭니다. 원본과 대조하며 고친 뒤 엑셀로 받습니다.
+        </div>
+        <div class="guide">
+          <div><b>1. 올리기</b><span>인보이스, 포장명세서, 통관 용도설명서, 운송장을 한 번에 올립니다. 스캔본도 읽습니다.</span></div>
+          <div><b>2. 확인</b><span>줄을 누르면 오른쪽 원본에서 그 자리를 짚습니다. 칸을 눌러 바로 고칩니다.</span></div>
+          <div><b>3. 엑셀</b><span>고친 값 그대로 G-ERP 열 순서의 엑셀로 받습니다. 빠진 줄이 의심되면 맨 위에 알립니다.</span></div>
+        </div>
+      </section>
+
+      <section id="vRun" class="card" hidden>
+        <div class="card-h"><div><h2 id="runTitle">읽는 중</h2><p class="desc" id="runMeta"></p></div></div>
+        <ul class="steps" id="steps"></ul>
+      </section>
+
+      <section id="vErr" class="card" hidden>
+        <h2>읽지 못했습니다</h2>
+        <p class="desc" id="errFiles"></p>
+        <div class="note bad" id="errMsg"></div>
+        <div class="row" style="margin-top:12px">
+          <button class="btn pri" type="button" data-act="retry">다시 읽기</button>
+          <button class="btn danger" type="button" data-act="delete">지우기</button>
+        </div>
+      </section>
+
+      <section id="vRes" hidden>
+        <div class="res-head">
+          <div>
+            <h2 id="resTitle"></h2>
+            <div class="meta" id="resMeta"></div>
+          </div>
+          <div class="acts">
+            <span class="small muted" id="dirty"></span>
+            <button class="btn ghost" type="button" data-act="retry">다시 읽기</button>
+            <button class="btn ghost danger" type="button" data-act="delete">지우기</button>
+            <button class="btn" type="button" id="confirmBtn" title="최종 값으로 확정합니다. 운영 쪽에서 정답 자료로 씁니다">확정</button>
+            <button class="btn pri" type="button" id="xlsxBtn">엑셀 받기</button>
+          </div>
+        </div>
+        <div class="banner" id="banner"></div>
+        <div class="split" id="split">
+          <div class="tpane">
+            <div class="tbl-wrap items-wrap"><table class="t items" id="items"></table></div>
+            <div class="under">
+              <button class="btn sm" type="button" id="addRow">줄 추가</button>
+              <span class="tiny muted">줄을 고른 뒤 누르면 그 아래에, 고르지 않으면 맨 아래에 더합니다.</span>
+              <span class="sp"></span>
+              <button class="btn sm ghost" type="button" id="togglePdf">원본 숨기기</button>
+            </div>
+            <div class="legend">
+              <span><i style="background:#f6f7f9;border:1px solid var(--line)"></i>G-ERP에서 채우는 열</span>
+              <span><i style="background:var(--edit)"></i>고친 칸</span>
+              <span><i style="box-shadow:inset 3px 0 0 var(--rule);background:#fff;border:1px solid var(--line)"></i>운영 규칙으로 채운 칸</span>
+              <span><i style="box-shadow:inset 3px 0 0 var(--warn);background:#fff;border:1px solid var(--line)"></i>필수 칸이 빈 줄</span>
+            </div>
+            <details class="more">
+              <summary>인보이스별 합계와 숫자 검증</summary>
+              <div class="grid2" style="margin-top:8px">
+                <div><div class="tbl-wrap"><table class="t" id="inv"></table></div></div>
+                <div><div id="vcounts" class="chips" style="margin-bottom:8px"></div><div class="tbl-wrap"><table class="t" id="vchecks"></table></div></div>
+              </div>
+            </details>
+          </div>
+          <div class="ppane" id="ppane">
+            <div class="ph">원본 서류 <span class="muted" id="pdfInfo"></span></div>
+            <div id="pdf"></div>
+          </div>
+        </div>
+      </section>
+    </main>
+  </div>
+</div>
+
+<div id="modalRoot"></div>
+
+<script>
+const ROOT = location.pathname.replace(/[^/]*$/, '');
+const $ = s => document.querySelector(s);
+const esc = s => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+let LIMITS = {files: 30, mb: 40, keepDays: 14};
+let PICK = [], JOBS = [], CUR = null, P = null, ORIG = null, DELETED = [], SEL = -1, POLL = null, LIST_POLL = null, PDF_FOR = null, SHOW_PDF = true, SAVED = '';
+const HIDE_COLS = ['케이스'];
+
+async function api(path, opt = {}) {
+  const r = await fetch(ROOT + path, opt);
+  if (r.status === 401) { showGate(); throw new Error('login'); }
+  const ct = r.headers.get('content-type') || '';
+  if (!ct.includes('json')) { if (!r.ok) throw new Error('요청이 실패했습니다(' + r.status + ')'); return r; }
+  const d = await r.json();
+  if (!r.ok) throw new Error(d.error || ('요청이 실패했습니다(' + r.status + ')'));
+  return d;
+}
+function toast(msg, bad) {
+  const t = document.createElement('div'); t.className = 'toast' + (bad ? ' bad' : ''); t.textContent = msg;
+  document.body.appendChild(t); setTimeout(() => t.remove(), bad ? 6000 : 3200);
+}
+function ask(title, text, okLabel, danger) {
+  return new Promise(res => {
+    const root = $('#modalRoot');
+    root.innerHTML = `<div class="modal-bg"><div class="modal" role="dialog" aria-modal="true"><h3>${esc(title)}</h3><p>${esc(text)}</p>
+      <div class="acts"><button class="btn" type="button" data-v="0">그만두기</button><button class="btn ${danger ? 'danger' : 'pri'}" type="button" data-v="1">${esc(okLabel)}</button></div></div></div>`;
+    root.querySelectorAll('button').forEach(b => b.onclick = () => { root.innerHTML = ''; res(b.dataset.v === '1'); });
+    root.querySelector('[data-v="1"]').focus();
+  });
+}
+const when = ts => { if (!ts) return ''; const d = new Date(ts * 1000), n = new Date();
+  const hm = d.toTimeString().slice(0, 5); return d.toDateString() === n.toDateString() ? hm : (d.getMonth() + 1) + '/' + d.getDate() + ' ' + hm; };
+
+// ───────── 들어가기
+function showGate() { $('#app').hidden = true; $('#gate').hidden = false; setTimeout(() => $('#pw').focus(), 0); }
+$('#loginForm').onsubmit = async e => {
+  e.preventDefault(); $('#loginErr').textContent = '';
+  try { await api('api/login', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({password: $('#pw').value})});
+        $('#pw').value = ''; boot(); }
+  catch (err) { if (err.message !== 'login') $('#loginErr').textContent = err.message; }
+};
+$('#logout').onclick = async () => { await fetch(ROOT + 'api/logout', {method: 'POST'}); location.hash = ''; showGate(); };
+
+async function boot() {
+  const st = await (await fetch(ROOT + 'api/state')).json();
+  LIMITS = st.limits || LIMITS;
+  $('#limits').textContent = `파일 ${LIMITS.files}개, 하나에 ${LIMITS.mb}MB까지`;
+  $('#keep').textContent = `올린 서류와 결과는 ${LIMITS.keepDays}일 뒤 지웁니다.`;
+  if (!st.auth) {
+    showGate();
+    if (!st.configured) $('#loginErr').textContent = '화면 비밀번호가 아직 정해지지 않았습니다. 담당자에게 문의해 주십시오.';
+    return;
+  }
+  $('#gate').hidden = true; $('#app').hidden = false; $('#toAdmin').hidden = !st.admin;
+  await loadJobs();
+  const h = location.hash.slice(1);
+  if (/^[0-9a-f]{32}$/.test(h)) open(h);
+}
+
+// ───────── 올리기
+$('#file').onchange = e => { addFiles(e.target.files); e.target.value = ''; };
+const drop = $('#drop');
+['dragenter', 'dragover'].forEach(t => drop.addEventListener(t, e => { e.preventDefault(); drop.classList.add('over'); }));
+['dragleave', 'drop'].forEach(t => drop.addEventListener(t, e => { e.preventDefault(); drop.classList.remove('over'); }));
+drop.addEventListener('drop', e => addFiles(e.dataTransfer.files));
+function addFiles(list) {
+  $('#upErr').textContent = '';
+  for (const f of list) {
+    if (!/\.pdf$/i.test(f.name)) { $('#upErr').textContent = 'PDF 파일만 올릴 수 있습니다: ' + f.name; continue; }
+    if (f.size > LIMITS.mb * 1048576) { $('#upErr').textContent = `파일 하나는 ${LIMITS.mb}MB까지입니다: ` + f.name; continue; }
+    if (!PICK.some(x => x.name === f.name && x.size === f.size)) PICK.push(f);
+  }
+  PICK = PICK.slice(0, LIMITS.files); drawPick();
+}
+function drawPick() {
+  $('#picked').innerHTML = PICK.map((f, i) => `<li><span title="${esc(f.name)}">${esc(f.name)}</span><span class="muted">${(f.size / 1048576).toFixed(1)}MB</span>
+    <button class="btn ghost sm" type="button" data-i="${i}" aria-label="${esc(f.name)} 빼기">빼기</button></li>`).join('');
+  $('#picked').querySelectorAll('button').forEach(b => b.onclick = () => { PICK.splice(+b.dataset.i, 1); drawPick(); });
+  $('#upBtn').disabled = !PICK.length;
+  $('#upBtn').textContent = PICK.length ? `${PICK.length}개 파일 읽기 시작` : '읽기 시작';
+}
+$('#upBtn').onclick = async () => {
+  const fd = new FormData(); PICK.forEach(f => fd.append('pdf', f, f.name));
+  $('#upBtn').disabled = true; $('#upErr').textContent = '';
+  try { const d = await api('api/jobs', {method: 'POST', body: fd}); PICK = []; drawPick(); await loadJobs(); open(d.job); }
+  catch (e) { if (e.message !== 'login') $('#upErr').textContent = e.message; $('#upBtn').disabled = !PICK.length; }
+};
+
+// ───────── 최근 작업
+async function loadJobs() {
+  try { JOBS = (await api('api/jobs')).jobs || []; } catch (e) { return; }
+  drawJobs();
+  clearTimeout(LIST_POLL);
+  if (JOBS.some(j => j.status === 'queued' || j.status === 'running')) LIST_POLL = setTimeout(loadJobs, 4000);
+}
+function jobStatus(j) {
+  if (j.status === 'queued') return ['run', '기다리는 중'];
+  if (j.status === 'running') return ['run', '읽는 중'];
+  if (j.status === 'error') return ['bad', '오류'];
+  if (j.verdict === '빠진 줄 의심') return ['warn', '빠진 줄 의심'];
+  return ['ok', j.confirmed ? '확정' : '완료'];
+}
+function drawJobs() {
+  if (!JOBS.length) { $('#jobs').innerHTML = '<li class="muted small" style="cursor:default">아직 올린 서류가 없습니다.</li>'; return; }
+  $('#jobs').innerHTML = JOBS.map(j => {
+    const [c, label] = jobStatus(j), f = j.files || [];
+    const name = j.supplier || f[0] || '올린 서류';
+    return `<li data-id="${j.id}" class="${CUR && CUR.id === j.id ? 'on' : ''}"><div class="l1"><span class="dot ${c}"></span><span>${esc(name)}</span></div>
+      <div class="l2"><span>${when(j.created)}</span><span>파일 ${f.length}개</span>${j.status === 'done' ? `<span>${j.lines}줄</span>` : ''}<span>${label}</span></div></li>`;
+  }).join('');
+  $('#jobs').querySelectorAll('li[data-id]').forEach(li => li.onclick = () => open(li.dataset.id));
+}
+
+// ───────── 작업 열기
+function view(id) { ['vEmpty', 'vRun', 'vErr', 'vRes'].forEach(v => $('#' + v).hidden = v !== id); }
+async function open(id) {
+  if (P && CUR && CUR.id !== id && unsaved() && !(await ask('고친 값이 있습니다', '엑셀을 받거나 확정하지 않고 다른 작업을 열면 고친 값이 사라집니다.', '다른 작업 열기'))) return;
+  clearTimeout(POLL); location.hash = id; CUR = {id}; P = null; drawJobs(); await poll();
+}
+async function poll() {
+  if (!CUR) return;
+  let d;
+  try { d = await api('api/jobs/' + CUR.id); } catch (e) { if (e.message !== 'login') { toast(e.message, true); view('vEmpty'); } return; }
+  CUR = d; drawJobs();
+  if (d.status === 'queued' || d.status === 'running') {
+    view('vRun');
+    $('#runTitle').textContent = d.status === 'queued' ? '차례를 기다리는 중' : '읽는 중';
+    $('#runMeta').textContent = (d.files || []).join(', ') + (d.queue > 1 ? ` | 앞에 ${d.queue - 1}건이 기다리고 있습니다` : '');
+    const st = d.steps || [];
+    $('#steps').innerHTML = st.map((s, i) => `<li class="${s.done ? 'done' : (i === st.length - 1 ? 'run' : '')}">${esc(s.text)}${s.sec ? `<span class="sec">${s.sec}초</span>` : ''}</li>`).join('')
+      || '<li class="run">곧 시작합니다</li>';
+    POLL = setTimeout(poll, 1500); return;
+  }
+  loadJobs();
+  if (d.status === 'error') { view('vErr'); $('#errFiles').textContent = (d.files || []).join(', '); $('#errMsg').textContent = d.error || '알 수 없는 오류입니다.'; return; }
+  P = d.payload; ORIG = JSON.parse(JSON.stringify(P.items)); DELETED = []; SEL = -1;
+  P.items.forEach((r, i) => r._i = i); SAVED = sig();
+  view('vRes'); drawResult();
+}
+
+// ───────── 결과
+function cols() { return P.cols.gerp.concat(P.cols.extra).filter(c => !HIDE_COLS.includes(c)); }
+function gapsOf(r) { return (P.required || []).filter(g => !g.some(c => String(r[c] == null ? '' : r[c]).trim())).map(g => g.join(' 또는 ')); }
+function dirtyCount() {
+  if (!P) return 0;
+  let n = DELETED.length;
+  P.items.forEach(r => { if (r._i == null) n++; else cols().forEach(c => { if (String(r[c] ?? '') !== String(ORIG[r._i][c] ?? '')) n++; }); });
+  return n;
+}
+function sig() { return P ? JSON.stringify([finalItems(), DELETED]) : ''; }
+function unsaved() { return !!P && sig() !== SAVED; }
+function drawDirty() { const n = dirtyCount(); $('#dirty').textContent = n ? `고친 곳 ${n}개` + (unsaved() ? '' : ', 엑셀에 반영함') : ''; }
+function drawResult() {
+  const files = CUR.files || [], comp = P.completeness || {};
+  $('#resTitle').textContent = P.supplier_name || files[0] || '올린 서류';
+  const inv = (P.inv || []).length, rules = (P.rules || []).filter(r => r.line != null).length;
+  $('#resMeta').textContent = [`품목 ${P.items.length}줄`, inv ? `인보이스 ${inv}장` : '', `파일 ${files.length}개`,
+    CUR.wall ? `${CUR.wall}초` : '', rules ? `규칙으로 채운 칸 ${rules}개` : '', CUR.confirmed ? '확정함' : ''].filter(Boolean).join(' | ');
+  drawBanner(comp); drawTable(); drawExtras(); drawDirty();
+  $('#split').classList.toggle('nopdf', !SHOW_PDF); $('#ppane').hidden = !SHOW_PDF;
+  if (SHOW_PDF) drawPdf();
+}
+function drawBanner(c) {
+  const st = {ok: ['ok', '맞음'], bad: ['bad', '어긋남'], skip: ['off', '근거 없음'], off: ['off', '꺼 둠']};
+  const chips = (c.checks || []).map(x => `<span class="chip" title="${esc(x.note || '')}"><span class="dot ${st[x.state] ? st[x.state][0] : 'off'}"></span>${esc(x.name)} ${st[x.state] ? st[x.state][1] : ''}</span>`).join('');
+  const rv = CUR.review;
+  let html = '';
+  if (c.verdict === '빠진 줄 의심') {
+    html = `<div class="note warn"><b>빠진 줄이 의심됩니다.</b> 원본과 줄 수를 대조해 주십시오.<ul>${(c.notes || []).map(n => `<li>${esc(n)}</li>`).join('')}</ul>`;
+  } else if (c.verdict === '확인 못 함') {
+    html = `<div class="note info"><b>빠진 줄을 확인하지 못했습니다.</b> ${esc((c.notes || [])[0] || '')}`;
+  } else {
+    html = `<div class="note ok"><b>빠진 줄이 없습니다.</b> ${esc((c.notes || [])[0] || '')}`;
+  }
+  if (c.verdict !== '이상 없음') {
+    html += rv ? `<div class="row small"><span>판정: ${rv.result === 'ok' ? '원본과 대조했고 빠진 줄 없음' : '빠진 줄 있음'}</span></div>`
+      : `<div class="row"><button class="btn sm" type="button" data-rv="ok">원본과 대조했고 빠진 줄 없음</button><button class="btn sm" type="button" data-rv="missing">빠진 줄이 있어 더하겠습니다</button></div>`;
+  }
+  html += `<div class="checks">${chips}</div></div>`;
+  $('#banner').innerHTML = html;
+  $('#banner').querySelectorAll('[data-rv]').forEach(b => b.onclick = async () => {
+    try { await api(`api/jobs/${CUR.id}/review`, {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({result: b.dataset.rv})});
+          CUR.review = {result: b.dataset.rv}; drawBanner(c);
+          toast(b.dataset.rv === 'ok' ? '빠진 줄 없음으로 기록했습니다.' : '빠진 줄 있음으로 기록했습니다. 아래 「줄 추가」로 더하십시오.'); }
+    catch (e) { if (e.message !== 'login') toast(e.message, true); }
+  });
+}
+function drawTable() {
+  const cs = cols(), only = P.cols.gerp_only || [];
+  let h = '<thead><tr><th class="no">줄</th>' + cs.map(c => `<th>${esc(c)}</th>`).join('') + '</tr></thead><tbody>';
+  P.items.forEach((r, k) => {
+    const gaps = gapsOf(r), o = r._i == null ? null : ORIG[r._i], rl = r._rules || {};
+    h += `<tr data-k="${k}" class="${gaps.length ? 'gap' : ''} ${r._i == null ? 'added' : ''} ${k === SEL ? 'sel' : ''}" ${gaps.length ? `title="비어 있음: ${esc(gaps.join(', '))}"` : ''}>
+      <td class="no"><button class="del" type="button" data-del="${k}" aria-label="${k + 1}번째 줄 지우기" title="이 줄 지우기">×</button>${k + 1}</td>` + cs.map(c => {
+        const v = r[c] == null ? '' : r[c];
+        const cls = [only.includes(c) ? 'gerp' : '', o && String(v) !== String(o[c] ?? '') ? 'edited' : '', rl[c] ? 'ruled' : ''].filter(Boolean).join(' ');
+        return `<td class="${cls}" data-c="${esc(c)}" contenteditable="true" ${rl[c] ? 'title="운영 규칙으로 채운 값"' : ''}>${esc(v)}</td>`;
+      }).join('') + '</tr>';
+  });
+  $('#items').innerHTML = h + '</tbody>';
+  $('#items').querySelectorAll('td[contenteditable]').forEach(td => {
+    td.addEventListener('input', () => {
+      const k = +td.parentNode.dataset.k, r = P.items[k], c = td.dataset.c; r[c] = td.textContent.trim();
+      const o = r._i == null ? null : ORIG[r._i];
+      td.classList.toggle('edited', !!o && String(r[c]) !== String(o[c] ?? ''));
+      const g = gapsOf(r); td.parentNode.classList.toggle('gap', !!g.length); drawDirty();
+    });
+    td.addEventListener('focus', () => select(+td.parentNode.dataset.k));
+    td.addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); td.blur(); } });
+  });
+  $('#items').querySelectorAll('[data-del]').forEach(b => b.onclick = e => { e.stopPropagation(); delRow(+b.dataset.del); });
+  $('#items').querySelectorAll('tr[data-k]').forEach(tr => tr.addEventListener('click', () => select(+tr.dataset.k)));
+}
+function delRow(k) {
+  const r = P.items[k]; if (r._i != null) DELETED.push(r._i);
+  P.items.splice(k, 1); SEL = -1; drawTable(); drawDirty(); toast(`${k + 1}번째 줄을 지웠습니다.`);
+}
+$('#addRow').onclick = () => {
+  const row = {}; cols().forEach(c => row[c] = ''); const at = SEL >= 0 ? SEL + 1 : P.items.length;
+  P.items.splice(at, 0, row); SEL = at; drawTable(); drawDirty();
+  const td = $('#items').querySelector(`tr[data-k="${at}"] td[contenteditable]`); if (td) td.focus();
+};
+function drawExtras() {
+  const ic = P.cols.inv || [];
+  $('#inv').innerHTML = '<thead><tr>' + ic.map(c => `<th>${esc(c)}</th>`).join('') + '</tr></thead><tbody>' +
+    (P.inv || []).map(r => '<tr>' + ic.map(c => `<td>${esc(r[c])}</td>`).join('') + '</tr>').join('') + '</tbody>';
+  const n = P.counts || {};
+  $('#vcounts').innerHTML = `<span class="chip"><span class="dot ok"></span>맞음 ${n.OK || 0}</span><span class="chip"><span class="dot warn"></span>확인 ${n.WARN || 0}</span><span class="chip"><span class="dot bad"></span>어긋남 ${n.FAIL || 0}</span>`;
+  const bad = (P.checks || []).filter(x => x.grade !== 'OK');
+  $('#vchecks').innerHTML = bad.length ? '<tbody>' + bad.map(x => `<tr><td><span class="bd ${x.grade === 'FAIL' ? 'bad' : 'warn'}">${x.grade === 'FAIL' ? '어긋남' : '확인'}</span></td><td>${esc(x.text)}</td></tr>`).join('') + '</tbody>'
+    : '<tbody><tr><td class="muted">어긋난 자리가 없습니다.</td></tr></tbody>';
+}
+$('#togglePdf').onclick = () => { SHOW_PDF = !SHOW_PDF; $('#togglePdf').textContent = SHOW_PDF ? '원본 숨기기' : '원본 보기'; drawResult(); };
+
+// ───────── 원본
+let PDFJS = null;
+async function drawPdf() {
+  if (PDF_FOR === CUR.id) return; PDF_FOR = CUR.id;
+  const box = $('#pdf'); box.innerHTML = '<p class="small muted">원본을 그리는 중입니다.</p>';
+  try { if (!PDFJS) { PDFJS = await import(ROOT + 'static/pdf.min.mjs'); PDFJS.GlobalWorkerOptions.workerSrc = ROOT + 'static/pdf.worker.min.mjs'; } }
+  catch (e) { box.innerHTML = '<p class="small muted">원본 보기 도구를 불러오지 못했습니다.</p>'; return; }
+  const files = CUR.files || [], id = CUR.id; let pages = 0; box.innerHTML = '';
+  for (let di = 0; di < files.length; di++) {
+    let doc; try { doc = await PDFJS.getDocument(ROOT + `api/jobs/${id}/pdf/${di}`).promise; } catch (e) { continue; }
+    for (let pn = 1; pn <= doc.numPages; pn++) {
+      if (PDF_FOR !== id) return;
+      const page = await doc.getPage(pn), w = Math.max(320, box.clientWidth || 420), vp0 = page.getViewport({scale: 1});
+      const vp = page.getViewport({scale: (w / vp0.width) * (window.devicePixelRatio || 1)});
+      const wrap = document.createElement('div'); wrap.className = 'pg'; wrap.id = `pg-${di}-${pn}`;
+      const cv = document.createElement('canvas'); cv.width = vp.width; cv.height = vp.height; wrap.appendChild(cv);
+      const lb = document.createElement('span'); lb.className = 'lbl'; lb.textContent = `${files[di]} ${pn}쪽`; wrap.appendChild(lb);
+      box.appendChild(wrap); await page.render({canvasContext: cv.getContext('2d'), viewport: vp}).promise; pages++;
+    }
+  }
+  $('#pdfInfo').textContent = `${files.length}개 파일, ${pages}쪽`;
+  if (SEL >= 0) mark(SEL);
+}
+function select(k) {
+  if (SEL === k) return; SEL = k;
+  $('#items').querySelectorAll('tr').forEach(t => t.classList.toggle('sel', +t.dataset.k === k)); mark(k);
+}
+function mark(k) {
+  document.querySelectorAll('.hl').forEach(e => e.remove());
+  const r = P.items[k]; if (!r) return; let first = null;
+  (r._hl || []).forEach(([di, pn, x0, y0, x1, y1]) => {
+    const wrap = document.getElementById(`pg-${di}-${pn}`), sz = (P.sizes[di] || [])[pn - 1]; if (!wrap || !sz) return;
+    const s = wrap.clientWidth / sz[0], e = document.createElement('div'); e.className = 'hl';
+    e.style.cssText = `left:${x0 * s - 3}px;top:${y0 * s - 3}px;width:${(x1 - x0) * s + 6}px;height:${(y1 - y0) * s + 6}px`;
+    wrap.appendChild(e); first = first || e;
+  });
+  if (first) { const pane = $('#ppane'); pane.scrollTo({top: first.offsetTop + first.parentNode.offsetTop - pane.clientHeight / 3, behavior: 'smooth'}); }
+}
+
+// ───────── 엑셀, 확정, 다시 읽기, 지우기
+function finalItems() { return P.items.map(r => { const o = {}; Object.keys(r).forEach(k => { if (!k.startsWith('_') || k === '_i') o[k] = r[k]; }); return o; }); }
+$('#xlsxBtn').onclick = async () => {
+  const b = $('#xlsxBtn'); b.disabled = true;
+  try {
+    const r = await api(`api/jobs/${CUR.id}/xlsx`, {method: 'POST', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({items: finalItems(), deleted: DELETED, head: P.head, inv: P.inv})});
+    const blob = await r.blob(), cd = r.headers.get('content-disposition') || '', m = /filename="([^"]+)"/.exec(cd);
+    const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = m ? m[1] : 'GERP.xlsx'; a.click();
+    setTimeout(() => URL.revokeObjectURL(a.href), 4000); SAVED = sig(); drawDirty(); toast('엑셀을 받았습니다.');
+  } catch (e) { if (e.message !== 'login') toast(e.message, true); }
+  b.disabled = false;
+};
+$('#confirmBtn').onclick = async () => {
+  if (!(await ask('이 값으로 확정합니다', '확정한 값은 운영 쪽에서 정답 자료로 씁니다. 확정한 뒤에도 고쳐서 다시 확정할 수 있습니다.', '확정'))) return;
+  try { await api(`api/jobs/${CUR.id}/confirm`, {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({items: finalItems()})});
+        CUR.confirmed = Date.now() / 1000; SAVED = sig(); drawResult(); loadJobs(); toast('확정했습니다.'); }
+  catch (e) { if (e.message !== 'login') toast(e.message, true); }
+};
+document.querySelectorAll('[data-act]').forEach(b => b.onclick = async () => {
+  if (b.dataset.act === 'retry') {
+    if (!(await ask('다시 읽습니다', '같은 서류를 처음부터 다시 읽습니다. 화면에서 고친 값은 사라집니다.', '다시 읽기'))) return;
+    try { await api(`api/jobs/${CUR.id}/retry`, {method: 'POST'}); PDF_FOR = null; poll(); loadJobs(); } catch (e) { if (e.message !== 'login') toast(e.message, true); }
+  } else {
+    if (!(await ask('작업을 지웁니다', '올린 서류와 결과를 모두 지웁니다. 되돌릴 수 없습니다.', '지우기', true))) return;
+    try { await api(`api/jobs/${CUR.id}`, {method: 'DELETE'}); CUR = null; P = null; PDF_FOR = null; location.hash = ''; view('vEmpty'); loadJobs(); toast('지웠습니다.'); }
+    catch (e) { if (e.message !== 'login') toast(e.message, true); }
+  }
+});
+window.addEventListener('beforeunload', e => { if (unsaved()) { e.preventDefault(); e.returnValue = ''; } });
+boot();
+</script>
+</body>
+</html>

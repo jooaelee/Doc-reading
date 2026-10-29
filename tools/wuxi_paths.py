@@ -29,14 +29,46 @@ def doc_roots(env_value=None):
     return [os.path.abspath(os.path.expanduser(p)) for p in raw.split(os.pathsep) if p.strip()]
 
 
+def settings() -> dict:
+    """운영 화면에서 정한 값(WORK/settings.json). 모델, 보관 일수, Claude 계정 폴더, CLI 위치."""
+    import json
+    try:
+        with open(work("settings.json"), encoding="utf-8") as fh:
+            v = json.load(fh)
+            return v if isinstance(v, dict) else {}
+    except (OSError, ValueError):
+        return {}
+
+
+def save_settings(patch: dict) -> dict:
+    """settings.json 에 덮어쓴다. 값이 None 이거나 빈 글이면 그 칸을 지워 기본값으로 돌린다."""
+    import json
+    cur = settings()
+    for k, v in patch.items():
+        if v is None or v == "":
+            cur.pop(k, None)
+        else:
+            cur[k] = v
+    os.makedirs(WORK, exist_ok=True)
+    tmp = work("settings.json.tmp")
+    with open(tmp, "w", encoding="utf-8") as fh:
+        json.dump(cur, fh, ensure_ascii=False, indent=1)
+    os.replace(tmp, work("settings.json"))
+    return cur
+
+
+def model():
+    """판독 모델. 운영 화면 값, MODEL 환경변수, 기본값(claude-sonnet-5) 순."""
+    return settings().get("model") or os.environ.get("MODEL") or "claude-sonnet-5"
+
+
 def claude_bin():
-    """Claude Code CLI 위치. WUXI_CLAUDE_BIN, CLAUDE_BIN, PATH, Windows 의 npm 설치 자리 순으로 찾는다.
+    """Claude Code CLI 위치. 운영 화면 값, WUXI_CLAUDE_BIN, CLAUDE_BIN, PATH, Windows 의 npm 설치 자리 순으로 찾는다.
 
     서버 프로세스(PM2 등)는 사람 터미널과 PATH 가 달라 이름만으로는 못 찾는 일이 있다. 그래서 흔한 자리를 더 본다.
     같은 서버에 docagent 가 있으면 그쪽이 정해 둔 위치(DOCAI_CLAUDE_CLI_PATH)도 빌려 본다(읽기만, 코드는 안 나눔).
     """
-    for env in ("WUXI_CLAUDE_BIN", "CLAUDE_BIN", "DOCAI_CLAUDE_CLI_PATH"):
-        v = os.environ.get(env)
+    for v in [settings().get("claude_bin")] + [os.environ.get(e) for e in ("WUXI_CLAUDE_BIN", "CLAUDE_BIN", "DOCAI_CLAUDE_CLI_PATH")]:
         if v and os.path.exists(v) and not v.lower().endswith(".js"):
             return v
     for name in ("claude", "claude.cmd", "claude.exe"):
@@ -53,9 +85,10 @@ def claude_bin():
 
 
 def claude_config_dir():
-    """Claude 계정 폴더. WUXI_CLAUDE_CONFIG_DIR, CLAUDE_CONFIG_DIR, 같은 서버 docagent 판독 계정 목록의 첫 계정 순.
-    다 없으면 None(CLI 기본 계정)."""
-    v = os.environ.get("WUXI_CLAUDE_CONFIG_DIR") or os.environ.get("CLAUDE_CONFIG_DIR")
+    """Claude 계정 폴더. 운영 화면 값, WUXI_CLAUDE_CONFIG_DIR, CLAUDE_CONFIG_DIR, 같은 서버 docagent 판독 계정 목록의
+    첫 계정 순. 다 없으면 None(CLI 기본 계정, 곧 그 PC 에서 `claude` 로 로그인한 계정)."""
+    v = (settings().get("claude_config_dir") or os.environ.get("WUXI_CLAUDE_CONFIG_DIR")
+         or os.environ.get("CLAUDE_CONFIG_DIR"))
     if v:
         return v
     dirs = [d.strip() for d in (os.environ.get("DOCAI_CLAUDE_CONFIG_DIRS") or "").split(os.pathsep) if d.strip()]

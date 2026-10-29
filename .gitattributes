@@ -1,0 +1,10 @@
+# 사내 Git 으로 옮길 때(git archive) GitHub 전용 설정은 빼고 보낸다
+.github export-ignore
+
+# 실행 파일의 줄 끝을 운영체제에 맞춰 고정한다. bat 이 LF 면 cmd 가 줄을 잘못 읽는다
+*.sh text eol=lf
+*.bat text eol=crlf
+
+# 회사 노트북 마무리 도구는 GitHub 에만 둔다(사내 Git 의 wuxi_ocr/ 에는 보내지 않는다)
+tools/laptop_go.sh export-ignore
+docs/노트북에서-한-번에.md export-ignore
