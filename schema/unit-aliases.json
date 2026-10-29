@@ -1,0 +1,223 @@
+{
+ "version": "0.1",
+ "updated": "2026-09-17",
+ "무엇인가": "서류에 적힌 단위 낱말을 KEROL 코드로 바꾸는 표. 9월 10일 실무 PM 회의에서 어려운 자리로 꼽힌 둘 가운데 하나다.",
+ "채우는 사람": "'포장 단위'와 '무게 단위'는 우리가 채웠다. '고객별'은 담당자와 함께 DT 가 채운다.",
+ "쓰는 곳": "tools/docpipe.py 의 postprocess. 코드로 바꾼 뒤 schema/codes.json 의 ITEM_UNIT_CD 로 검증한다.",
+ "포장 단위": {
+  "CARTON": "CAR",
+  "CARTONS": "CAR",
+  "CTN": "CAR",
+  "CTNS": "CAR",
+  "CT": "CAR",
+  "CAR": "CAR",
+  "BOX": "BOX",
+  "BOXES": "BOX",
+  "BX": "BOX",
+  "PALLET": "PAL",
+  "PALLETS": "PAL",
+  "PLT": "PAL",
+  "PLTS": "PAL",
+  "PAL": "PAL",
+  "SKID": "PAL",
+  "SKIDS": "PAL",
+  "PACKAGE": "PAC",
+  "PACKAGES": "PAC",
+  "PKG": "PAC",
+  "PKGS": "PAC",
+  "PAC": "PAC",
+  "PACK": "PAC",
+  "PIECE": "PC",
+  "PIECES": "PC",
+  "PC": "PC",
+  "PCS": "PC",
+  "CASE": "CR",
+  "CASES": "CR",
+  "CRATE": "CR",
+  "CRATES": "CR",
+  "CR": "CR",
+  "BAG": "BAG",
+  "BAGS": "BAG",
+  "DRUM": "DR",
+  "DRUMS": "DR",
+  "DR": "DR",
+  "ROLL": "ROL",
+  "ROLLS": "ROL",
+  "ROL": "ROL",
+  "REEL": "ROL",
+  "REELS": "ROL",
+  "SET": "SET",
+  "SETS": "SET",
+  "EA": "EA",
+  "EACH": "EA",
+  "UNIT": "EA",
+  "UNITS": "EA",
+  "TRAY": "PAC",
+  "TRAYS": "PAC",
+  "BUNDLE": "PAC",
+  "BUNDLES": "PAC",
+  "PLYWOOD": "CR",
+  "PLYWOOD BOX": "CR",
+  "WOODEN": "CR",
+  "WOODEN BOX": "CR",
+  "WOODEN CASE": "CR",
+  "WOOD CASE": "CR",
+  "WOODEN PACKAGE": "CR",
+  "RACK": "PAC",
+  "PARCEL": "PAC",
+  "SLAC": "PAC",
+  "JERRICAN": "JER",
+  "JER": "JER",
+  "TOTE": "TOTE",
+  "CAN": "CAN",
+  "CANS": "CAN",
+  "PAIL": "PAIL",
+  "PAILS": "PAIL",
+  "KIT": "KIT",
+  "KITS": "KIT",
+  "BOTTLE": "BT",
+  "BOTTLES": "BT",
+  "TANK": "TNK",
+  "TOTES": "TOTE",
+  "DANPLA": "BOX",
+  "DANPLA BOX": "BOX",
+  "PAPER BOX": "BOX",
+  "PLASTIC BOX": "BOX",
+  "PLASTICS BOX": "BOX"
+ },
+ "낱말 포함": [
+  [
+   "CARTON",
+   "CAR"
+  ],
+  [
+   "CTN",
+   "CAR"
+  ],
+  [
+   "BOX",
+   "BOX"
+  ],
+  [
+   "PALLET",
+   "PAL"
+  ],
+  [
+   "PLT",
+   "PAL"
+  ],
+  [
+   "SKID",
+   "PAL"
+  ],
+  [
+   "PACKAGE",
+   "PAC"
+  ],
+  [
+   "PKG",
+   "PAC"
+  ],
+  [
+   "PIECE",
+   "PC"
+  ],
+  [
+   "PCS",
+   "PC"
+  ],
+  [
+   "CASE",
+   "CR"
+  ],
+  [
+   "CRATE",
+   "CR"
+  ],
+  [
+   "BAG",
+   "BAG"
+  ],
+  [
+   "DRUM",
+   "DR"
+  ],
+  [
+   "ROLL",
+   "ROL"
+  ],
+  [
+   "REEL",
+   "ROL"
+  ],
+  [
+   "SET",
+   "SET"
+  ],
+  [
+   "TRAY",
+   "PAC"
+  ],
+  [
+   "PLYWOOD",
+   "CR"
+  ],
+  [
+   "WOOD",
+   "CR"
+  ],
+  [
+   "RACK",
+   "PAC"
+  ],
+  [
+   "PARCEL",
+   "PAC"
+  ],
+  [
+   "JERRICAN",
+   "JER"
+  ],
+  [
+   "TOTE",
+   "TOTE"
+  ],
+  [
+   "BOTTLE",
+   "BT"
+  ]
+ ],
+ "무게 단위": {
+  "KG": "KG",
+  "KGS": "KG",
+  "KGM": "KG",
+  "KILOGRAM": "KG",
+  "KILOGRAMS": "KG",
+  "K": "KG",
+  "TON": "TON",
+  "TONS": "TON",
+  "MT": "TON",
+  "M/T": "TON",
+  "LB": "LB",
+  "LBS": "LB",
+  "POUND": "LB",
+  "POUNDS": "LB",
+  "G": "G",
+  "GRAM": "G",
+  "GRAMS": "G"
+ },
+ "고객별": [
+  {
+   "고객": "(보기) 채우기 전의 빈 줄입니다",
+   "적힌 값": "EA",
+   "쓸 코드": "BOX",
+   "근거": "담당자 확인이 필요합니다",
+   "확인": false
+  }
+ ],
+ "고객별 설명": [
+  "어떤 고객은 CI 나 PL 에 EA 라고 적는데 실제로는 kg 이거나 박스다. 이런 자리를 여기에 적는다.",
+  "'확인' 이 true 인 줄만 파이프라인이 쓴다. false 인 줄은 무시한다.",
+  "'고객' 은 KEROL 의 Act. Customer 코드로 적는 편이 낫다. 이름은 표기가 흔들린다."
+ ]
+}

@@ -1,0 +1,364 @@
+<title>오더 확인 화면 시안</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+KR:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap">
+<style>
+:root{
+  color-scheme:light;
+  --page:#f7f6f2; --surface:#fffefb; --sunk:#efeee7; --line:#e0ded2; --rule:#cfccbc;
+  --ink:#17160f; --ink-2:#54524a; --ink-3:#8b887c;
+  --accent:#0e6f68; --accent-soft:#d6e9e6; --accent-ink:#0a5751;
+  --ok:#2f7d4f; --ok-soft:#dbeddf;
+  --ask:#a8730f; --ask-soft:#f5e7cb;
+  --miss:#8b887c; --miss-soft:#e8e6dc;
+  --bad:#b23b33; --bad-soft:#f6dedb; --on-accent:#ffffff;
+}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){
+  color-scheme:dark;
+  --page:#111110; --surface:#1b1b19; --sunk:#232320; --line:#2f2f2b; --rule:#3d3d37;
+  --ink:#f6f5ef; --ink-2:#c0bdb2; --ink-3:#8b887c;
+  --accent:#4fb3aa; --accent-soft:#123c39; --accent-ink:#7fd0c8;
+  --ok:#5aab74; --ok-soft:#15301f;
+  --ask:#d19a30; --ask-soft:#33260e;
+  --miss:#7d7a70; --miss-soft:#26261f;
+  --bad:#e0665c; --bad-soft:#3a1a17; --on-accent:#0b1f1d;
+}}
+:root[data-theme="dark"]{
+  color-scheme:dark;
+  --page:#111110; --surface:#1b1b19; --sunk:#232320; --line:#2f2f2b; --rule:#3d3d37;
+  --ink:#f6f5ef; --ink-2:#c0bdb2; --ink-3:#8b887c;
+  --accent:#4fb3aa; --accent-soft:#123c39; --accent-ink:#7fd0c8;
+  --ok:#5aab74; --ok-soft:#15301f;
+  --ask:#d19a30; --ask-soft:#33260e;
+  --miss:#7d7a70; --miss-soft:#26261f;
+  --bad:#e0665c; --bad-soft:#3a1a17; --on-accent:#0b1f1d;
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--page);color:var(--ink);
+  font-family:"IBM Plex Sans KR","Noto Sans KR",system-ui,-apple-system,sans-serif;
+  font-size:14.5px;line-height:1.6;word-break:keep-all;overflow-wrap:break-word;
+  padding-inline:18px;padding-block:0 56px}
+.wrap{max-width:1160px;margin:0 auto}
+.mono{font-family:"IBM Plex Mono",ui-monospace,Menlo,monospace;font-size:.9em;font-variant-numeric:tabular-nums}
+button{font:inherit}
+:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+
+header{padding-block:34px 18px}
+.eyebrow{font-family:"IBM Plex Mono",monospace;font-size:11px;letter-spacing:.14em;text-transform:uppercase;color:var(--ink-3);margin:0 0 10px}
+h1{font-size:clamp(24px,3.4vw,32px);font-weight:600;letter-spacing:-.02em;margin:0 0 10px;line-height:1.2}
+.lede{color:var(--ink-2);margin:0;max-width:66ch;font-size:15px}
+.demo-note{margin:16px 0 0;border:1px solid var(--ask);background:var(--ask-soft);color:var(--ink);border-radius:3px;padding:10px 13px;font-size:13px;max-width:72ch}
+.demo-note b{font-weight:600}
+
+/* 머리 줄 */
+.bar{display:flex;gap:14px;align-items:center;flex-wrap:wrap;background:var(--surface);border:1px solid var(--line);border-radius:3px;padding:13px 15px;margin:20px 0 0}
+.bar .case{font-family:"IBM Plex Mono",monospace;font-size:17px;font-weight:600}
+.bar .meta{font-size:12.5px;color:var(--ink-2)}
+.bar .grow{flex:1 1 auto}
+.stat{display:inline-flex;align-items:center;gap:6px;font-size:12.5px;color:var(--ink-2)}
+.dot{width:8px;height:8px;border-radius:50%;display:inline-block;background:var(--miss)}
+.dot.ok{background:var(--ok)} .dot.ask{background:var(--ask)} .dot.bad{background:var(--bad)}
+.cta{border:1px solid var(--accent);background:var(--accent);color:var(--on-accent);border-radius:3px;padding:8px 18px;font-weight:600;font-size:14px;cursor:pointer}
+.cta[disabled]{background:var(--sunk);border-color:var(--line);color:var(--ink-3);cursor:not-allowed}
+
+/* 세 칸 */
+.grid{display:grid;grid-template-columns:1.15fr 1fr 1.25fr;gap:14px;margin-top:14px;align-items:start}
+@media (max-width:900px){.grid{grid-template-columns:1fr}}
+.card{background:var(--surface);border:1px solid var(--line);border-radius:3px;overflow:hidden}
+.card > h2{font-size:12px;font-weight:600;letter-spacing:.09em;text-transform:uppercase;color:var(--ink-3);
+  font-family:"IBM Plex Mono",monospace;margin:0;padding:11px 14px 9px;border-bottom:1px solid var(--line);
+  display:flex;justify-content:space-between;gap:10px;align-items:baseline}
+.card > h2 span{color:var(--ink-2);letter-spacing:0;text-transform:none;font-size:11.5px}
+.card .body{padding:6px 14px 14px}
+.card .body.tight{padding:0 0 6px}
+
+/* 중간 테이블 */
+.kv{display:grid;grid-template-columns:minmax(96px,auto) 1fr;gap:2px 12px;font-size:13px;padding:8px 14px 0}
+.kv dt{color:var(--ink-3);font-size:12px;padding-top:3px}
+.kv dd{margin:0;font-family:"IBM Plex Mono",monospace;font-size:12.5px;padding-top:3px;word-break:break-all}
+.kv dd.blank{font-family:inherit;color:var(--ink-3)}
+.more{font-size:12px;color:var(--ink-3);padding:10px 14px 0}
+
+/* 검증 */
+.checks{list-style:none;margin:0;padding:0;font-size:12.5px}
+.checks li{display:flex;gap:9px;padding:5px 14px;border-bottom:1px solid var(--line);align-items:baseline}
+.checks li:last-child{border-bottom:0}
+.badge{font-family:"IBM Plex Mono",monospace;font-size:10px;padding:0 6px;border-radius:2px;flex:none;line-height:1.8}
+.badge.ok{background:var(--ok-soft);color:var(--ok)}
+.badge.warn{background:var(--ask-soft);color:var(--ask)}
+.badge.fail{background:var(--bad-soft);color:var(--bad)}
+.checks .what{color:var(--ink-2)}
+.checks .why{color:var(--ink-3);font-size:11.5px;margin-left:auto;font-family:"IBM Plex Mono",monospace;white-space:nowrap}
+
+/* 코드 자리 */
+.slot{padding:12px 14px;border-bottom:1px solid var(--line)}
+.slot:last-child{border-bottom:0}
+.slot .head{display:flex;gap:8px;align-items:baseline;flex-wrap:wrap}
+.slot .role{font-size:12px;color:var(--ink-3);min-width:52px}
+.slot .name{font-family:"IBM Plex Mono",monospace;font-size:12.5px;flex:1 1 auto;word-break:break-all}
+.verdict{font-family:"IBM Plex Mono",monospace;font-size:10.5px;padding:0 7px;border-radius:2px;line-height:1.9;flex:none}
+.v-ok{background:var(--ok-soft);color:var(--ok)}
+.v-ask{background:var(--ask-soft);color:var(--ask)}
+.v-none{background:var(--miss-soft);color:var(--miss)}
+.cands{display:flex;gap:6px;flex-wrap:wrap;margin-top:8px}
+.cand{border:1px solid var(--line);background:var(--sunk);color:var(--ink-2);border-radius:2px;
+  padding:4px 9px;font-size:12px;cursor:pointer;display:inline-flex;gap:7px;align-items:baseline;font-family:"IBM Plex Mono",monospace}
+.cand:hover{border-color:var(--accent);color:var(--ink)}
+.cand .sc{color:var(--ink-3);font-size:10.5px}
+.cand[aria-pressed="true"]{border-color:var(--ok);background:var(--ok-soft);color:var(--ok);font-weight:600}
+.chosen{margin-top:8px;font-size:12.5px;color:var(--ink-2);display:flex;gap:8px;align-items:baseline;flex-wrap:wrap}
+.chosen .code{font-family:"IBM Plex Mono",monospace;font-weight:600;color:var(--ok);font-size:13.5px}
+.undo{border:0;background:none;color:var(--ink-3);font-size:11.5px;text-decoration:underline;cursor:pointer;padding:0}
+.undo:hover{color:var(--ink)}
+.nocand{font-size:12.5px;color:var(--ink-3);margin-top:7px}
+
+/* 확정 매핑 */
+.learned{margin-top:14px}
+table{border-collapse:collapse;width:100%;font-size:13px}
+th,td{text-align:left;padding:7px 14px;border-bottom:1px solid var(--line)}
+thead th{font-size:10.5px;font-weight:600;letter-spacing:.08em;text-transform:uppercase;color:var(--ink-3);font-family:"IBM Plex Mono",monospace;white-space:nowrap}
+tbody tr:last-child td{border-bottom:0}
+td.mono,td .mono{font-family:"IBM Plex Mono",monospace}
+.empty{padding:14px;color:var(--ink-3);font-size:13px}
+.tablewrap{overflow-x:auto}
+footer{margin-top:26px;padding-top:16px;border-top:1px solid var(--line);font-size:12.5px;color:var(--ink-3)}
+footer p{margin:0 0 5px;max-width:78ch}
+.toast{position:fixed;left:50%;transform:translateX(-50%);bottom:22px;background:var(--ink);color:var(--page);
+  padding:9px 16px;border-radius:3px;font-size:13px;box-shadow:0 6px 20px rgba(0,0,0,.18);z-index:9}
+.toast[hidden]{display:none}
+@media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
+</style>
+
+<div class="wrap">
+<header>
+  <p class="eyebrow">FSK DT 실무 협의, 6단계 시안</p>
+  <h1>오더 확인 화면 시안</h1>
+  <p class="lede">파이프라인이 값을 다 뽑고 검증까지 끝낸 뒤의 화면입니다. 담당자가 빈 자리를 채우고 컨펌하면 KEROL 로 넘어갑니다. 담당자가 고른 코드는 저장되어 다음 건에서 먼저 뜹니다. 회의에서 말한 "학습"이 이 자리입니다.</p>
+  <p class="demo-note"><b>시안입니다.</b> 값의 짜임과 검증 결과는 실제로 돌린 케이스의 것이고, 고객 이름과 번호와 품명은 예시로 바꿨습니다. 거래처 후보 코드도 KEROL 거래처 마스터가 아직 없어서 만든 예시입니다. 마스터를 받으면 실제 코드로 바뀝니다. 이 화면은 KEROL 에 아무것도 보내지 않습니다.</p>
+
+  <div class="bar">
+    <span class="case" id="case-key">J283048</span>
+    <span class="meta">항공 수입, 메일 2통, 서류 1건</span>
+    <span class="stat"><i class="dot ok"></i>검증 21건 전부 OK</span>
+    <span class="stat"><i class="dot" id="code-dot"></i><span id="code-stat">코드 4자리 중 0 확정</span></span>
+    <span class="grow"></span>
+    <button class="cta" id="confirm" disabled>컨펌하고 KEROL 로</button>
+  </div>
+</header>
+
+<div class="grid">
+  <section class="card">
+    <h2>중간 테이블 <span id="filled-note">60열 중 18열</span></h2>
+    <dl class="kv" id="sorow"></dl>
+    <p class="more" id="blank-note"></p>
+  </section>
+
+  <section class="card">
+    <h2>규칙 검증 <span>21건 OK</span></h2>
+    <div class="body tight"><ul class="checks" id="checks"></ul></div>
+  </section>
+
+  <section class="card">
+    <h2>코드 찾기 <span>이름을 KEROL 코드로</span></h2>
+    <div class="body tight" id="slots"></div>
+  </section>
+</div>
+
+<section class="card learned">
+  <h2>확정 매핑 <span id="learned-note">담당자가 고른 짝이 쌓입니다</span></h2>
+  <div class="tablewrap"><table>
+    <thead><tr><th>서류에 적힌 이름</th><th>KEROL 코드</th><th>고른 사람</th><th>언제</th><th>쓰인 횟수</th><th></th></tr></thead>
+    <tbody id="learned-rows"></tbody>
+  </table></div>
+  <p class="empty" id="learned-empty">아직 없습니다. 오른쪽 칸에서 후보를 고르면 여기에 쌓이고, 다음 건부터는 같은 이름이 오면 바로 채워집니다.</p>
+</section>
+
+<footer>
+  <p>단계는 <a href="https://claude.ai/code/artifact/4dd3e448-1be2-42bc-a840-769fae0946f1">메일에서 KEROL 오더까지</a>, 시간과 비용과 정확도는 <a href="https://claude.ai/code/artifact/6837f23f-e587-4410-87fe-bd3f9ddd74c0">서류 판독 파이프라인 실측</a> 에 있습니다.</p>
+  <p id="store-note">확정 매핑은 이 화면에 저장됩니다. 다른 사람이 열어도 같은 값이 보입니다.</p>
+</footer>
+</div>
+<p class="toast" id="toast" hidden></p>
+
+<script>
+// 실제로 돌린 케이스의 값. 서류에서 뽑아 검증까지 끝낸 뒤의 상태다.
+const SO_ROW = [
+  ["Customer Order No","PO-26-0912"],["HBL No","J283048"],["MBL No","98813444266"],
+  ["Flight / Vessel","OZ752"],["Incoterms","EXW"],["Item Desc","SUSCEPTOR, QUARTZ"],
+  ["Invoice Amt","9200.76"],["Invoice Cur","USD"],["Package Qty.","2"],["Package Unit","CAR"],
+  ["Gross Weight","200.0"],["Gross Weight Unit","KG"],["Chargeable Weight","317.0"],
+  ["Chargeable Weight Unit","KG"],["Ref. Type","INV"],["Ref. No.","INV-26-0088"],["Service Group","AIR"]
+];
+const CHECKS = [
+  ["ok","원문 대조","hawb, mawb, 송장번호 등 7건"],
+  ["ok","수량×단가","2줄"],
+  ["ok","줄 합과 총액","9,200.76"],
+  ["ok","PL 과 CI 수량","2 / 2"],
+  ["ok","포장 수와 피스 수","2 / 2"],
+  ["ok","총중량 세 곳 대조","200"],
+  ["ok","순중량 PL 과 CI","48.72"],
+  ["ok","용적중량","316.8 → 317"],
+  ["ok","요금표 합계","2,069.78"],
+  ["ok","요금표 USD 합계","1,615.24"],
+  ["ok","요금표 환율 곱","전부 일치"],
+  ["ok","인코텀즈 코드표","EXW"],
+  ["ok","포장 단위 코드표","CAR"],
+  ["ok","MAWB 검증 숫자","988-13444266"],
+  ["warn","메일과 서류가 다름","총중량 200.0 / 214.5"]
+];
+// 코드를 채워야 하는 자리. 장소는 실제 목록에서 찾은 것이고 거래처 후보는 예시 코드다.
+const SLOTS = [
+  { id:"shipper", role:"송하인", name:"ORION WORKS PTE LTD", col:"Shipper", status:"추천", example:true,
+    cands:[["ORIW001",0.91,"SINGAPORE"],["ORIW002",0.74,"JOHOR, MALAYSIA"]] },
+  { id:"consignee", role:"수하인", name:"NDEC SEMICONDUCTOR (DALIAN)", col:"Consignee", status:"선택", example:true,
+    cands:[["NDSC001",0.88,"DALIAN, CHINA"],["NDSC002",0.88,"WUXI, CHINA"]] },
+  { id:"pol", role:"출발지", name:"SINGAPORE", col:"Port of Loading", status:"확정", example:false,
+    cands:[["SGSIN",0.98,"장소 목록에서 찾음"]], auto:"SGSIN" },
+  { id:"pod", role:"도착지", name:"DALIAN", col:"Port of Discharge", status:"없음", example:false, cands:[] }
+];
+const KEY = s => s.toUpperCase().replace(/[^A-Z0-9]+/g," ").trim().replace(/\s+/g,"_");
+
+let db = null, me = "담당자", chosen = {}, learned = {}, confirmed = false;
+SLOTS.forEach(s => { if (s.auto) chosen[s.id] = s.auto; });   // 파이프라인이 이미 확정한 자리
+const $ = id => document.getElementById(id);
+const esc = s => String(s).replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+
+function toast(msg){
+  const t = $("toast"); t.textContent = msg; t.hidden = false;
+  clearTimeout(toast._t); toast._t = setTimeout(() => { t.hidden = true; }, 2600);
+}
+
+function renderRow(){
+  const extra = Object.entries(chosen).map(([id,code]) => [SLOTS.find(s=>s.id===id).col, code]);
+  const rows = SO_ROW.concat(extra);
+  $("sorow").innerHTML = rows.map(([k,v]) =>
+    `<dt>${esc(k)}</dt><dd>${esc(v)}</dd>`).join("") +
+    SLOTS.filter(s => !chosen[s.id]).map(s =>
+    `<dt>${esc(s.col)}</dt><dd class="blank">비어 있습니다</dd>`).join("");
+  const n = rows.length;
+  $("filled-note").textContent = `60열 중 ${n}열`;
+  const left = SLOTS.length - Object.keys(chosen).length;
+  $("blank-note").textContent = left
+    ? `코드 자리 ${left}곳이 비어 있습니다. 나머지 빈 열은 스케줄과 담당자 판단으로 채웁니다.`
+    : "코드 자리가 다 찼습니다. 나머지 빈 열은 스케줄과 담당자 판단으로 채웁니다.";
+}
+
+function renderChecks(){
+  $("checks").innerHTML = CHECKS.map(([g,what,why]) =>
+    `<li><span class="badge ${g}">${g === "ok" ? "OK" : "WARN"}</span><span class="what">${esc(what)}</span><span class="why">${esc(why)}</span></li>`).join("");
+}
+
+function renderSlots(){
+  $("slots").innerHTML = SLOTS.map(s => {
+    const pick = chosen[s.id];
+    const learnedHit = learned[KEY(s.name)];
+    const status = pick ? "확정" : (learnedHit ? "확정" : s.status);
+    const vc = status === "확정" ? "v-ok" : status === "없음" ? "v-none" : "v-ask";
+    let body;
+    if (pick) {
+      const how = s.auto === pick ? "코드 찾기가 확정했습니다"
+                : (learnedHit && learnedHit.count > 1) ? "확정 매핑에서 바로 채웠습니다"
+                : "담당자가 골랐습니다";
+      body = `<p class="chosen"><span class="code">${esc(pick)}</span><span>${how}</span>
+        <button class="undo" data-undo="${s.id}">되돌리기</button></p>`;
+    } else if (!s.cands.length) {
+      body = `<p class="nocand">닮은 것이 없습니다. 신규이거나 표기가 많이 다릅니다. 장소 마스터를 받으면 채워집니다.</p>`;
+    } else {
+      body = `<div class="cands">` + s.cands.map(([code,score,note]) =>
+        `<button class="cand" data-slot="${s.id}" data-code="${code}" aria-pressed="false" title="${esc(note)}">
+          ${code}<span class="sc">${score.toFixed(2)}</span></button>`).join("") +
+        `</div>` + (s.example ? `<p class="nocand">예시 코드입니다. 거래처 마스터를 받으면 바뀝니다.</p>` : "");
+    }
+    return `<div class="slot"><div class="head"><span class="role">${esc(s.role)}</span>
+      <span class="name">${esc(s.name)}</span><span class="verdict ${vc}">${status}</span></div>${body}</div>`;
+  }).join("");
+  $("slots").querySelectorAll(".cand").forEach(b =>
+    b.addEventListener("click", () => choose(b.dataset.slot, b.dataset.code)));
+  $("slots").querySelectorAll(".undo").forEach(b =>
+    b.addEventListener("click", () => undo(b.dataset.undo)));
+  const done = Object.keys(chosen).length;
+  $("code-stat").textContent = `코드 4자리 중 ${done} 확정`;
+  $("code-dot").className = "dot " + (done === SLOTS.length ? "ok" : done ? "ask" : "");
+  $("confirm").disabled = done !== SLOTS.length || confirmed;
+  $("confirm").textContent = confirmed ? "컨펌했습니다" : "컨펌하고 KEROL 로";
+}
+
+function renderLearned(){
+  const rows = Object.entries(learned).sort((a,b) => (b[1].when||"").localeCompare(a[1].when||""));
+  $("learned-empty").hidden = rows.length > 0;
+  $("learned-rows").innerHTML = rows.map(([k,v]) =>
+    `<tr><td class="mono">${esc(v.name || k)}</td><td class="mono">${esc(v.code)}</td>
+     <td>${esc(v.who || "담당자")}</td><td class="mono">${esc((v.when||"").slice(0,16).replace("T"," "))}</td>
+     <td class="mono">${v.count || 1}</td>
+     <td><button class="undo" data-forget="${esc(k)}">지우기</button></td></tr>`).join("");
+  $("learned-rows").querySelectorAll("[data-forget]").forEach(b =>
+    b.addEventListener("click", () => forget(b.dataset.forget)));
+}
+
+function render(){ renderRow(); renderChecks(); renderSlots(); renderLearned(); }
+
+async function choose(slotId, code){
+  const s = SLOTS.find(x => x.id === slotId);
+  chosen[slotId] = code;
+  const key = KEY(s.name);
+  const prev = learned[key];
+  learned[key] = { name:s.name, code, who:me, when:new Date().toISOString(),
+                   count:(prev && prev.code === code ? (prev.count||1) + 1 : 1) };
+  render();
+  if (!db) { toast(`${code} 으로 채웠습니다. 이 화면에서만 기억합니다.`); return; }
+  try {
+    await db.doc("mappings/" + key).set(learned[key]);
+    toast(`${code} 으로 채우고 확정 매핑에 저장했습니다.`);
+  } catch (e) {
+    toast(e && e.code === "invalid_argument" ? "보기 권한만 있어 저장하지 못했습니다." : "저장하지 못했습니다.");
+  }
+}
+
+async function undo(slotId){
+  delete chosen[slotId];
+  render();
+  toast("되돌렸습니다. 확정 매핑은 그대로 둡니다.");
+}
+
+async function forget(key){
+  delete learned[key];
+  for (const s of SLOTS) if (KEY(s.name) === key) delete chosen[s.id];
+  render();
+  if (!db) return;
+  try { await db.doc("mappings/" + key).delete(); toast("확정 매핑에서 지웠습니다."); }
+  catch (e) { toast("지우지 못했습니다."); }
+}
+
+$("confirm").addEventListener("click", async () => {
+  confirmed = true; renderSlots();
+  toast("컨펌했습니다. 실제 시안에서는 이 자리에서 KEROL API 를 부릅니다.");
+  if (!db) return;
+  try {
+    await db.doc("cases/J283048").set({ status:"컨펌", who:me, when:new Date().toISOString(),
+      codes:{...chosen}, note:"시안이라 KEROL 로 보내지 않습니다" });
+  } catch (e) { /* 보기 권한이면 조용히 둔다 */ }
+});
+
+render();
+
+// 저장소가 있으면 확정 매핑을 읽어 와서 먼저 채운다. 없으면 이 화면에서만 기억한다.
+(async () => {
+  db = await (window.claude && window.claude.use ? window.claude.use("db") : null);
+  if (!db) {
+    $("store-note").textContent = "이 보기에서는 저장소가 열리지 않아 고른 값이 화면에만 남습니다.";
+    $("learned-note").textContent = "이 화면에서만 기억합니다";
+    return;
+  }
+  db.collection("mappings").onSnapshot(snap => {
+    const next = {};
+    snap.docs.forEach(d => { const v = d.data(); if (v && v.code) next[d.id] = v; });
+    learned = next;
+    for (const s of SLOTS) {
+      const hit = learned[KEY(s.name)];
+      if (hit && !chosen[s.id]) chosen[s.id] = hit.code;
+    }
+    render();
+  }, () => { $("learned-note").textContent = "저장소를 읽지 못했습니다"; });
+  db.doc("cases/J283048").onSnapshot(snap => {
+    if (snap.exists && snap.data() && snap.data().status === "컨펌") { confirmed = true; renderSlots(); }
+  }, () => {});
+})();
+</script>

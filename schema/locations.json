@@ -1,0 +1,368 @@
+{
+ "version": "0.1",
+ "updated": "2026-09-10",
+ "무엇인가": "장소 이름을 KEROL 코드로 바꾸는 마스터. 서류에는 이름이 적혀 있고 KEROL 은 코드를 받는다.",
+ "만드는 법": "python3 tools/kerol_master.py --locations",
+ "확인된 것의 출처": "저장소의 KEROL 배터리 내보내기 두 벌. 고객 포털에는 이름이 있고 데이터 분석에는 코드가 있으며 BL 번호로 이어진다. 실제로 같이 쓰인 짝만 남겼다.",
+ "임시의 출처": "항공 건에 나온 출발지와 도착지. 표준 코드로 적었지만 KEROL 이 쓰는 값인지 확인하지 않았다.",
+ "다음": "KEROL 의 Global Location(CM_CITYCODE_M001) 을 받으면 통째로 바꾼다.",
+ "확인된 것": [
+  {
+   "code": "DEBRV",
+   "name": "BREMERHAVEN, GERMANY",
+   "address": "",
+   "건수": 83
+  },
+  {
+   "code": "HUBUD",
+   "name": "BUDAPEST, HUNGARY",
+   "address": "",
+   "건수": 1
+  },
+  {
+   "code": "KRPUS",
+   "name": "BUSAN, KOREA",
+   "address": "",
+   "건수": 593
+  },
+  {
+   "code": "USCHS",
+   "name": "CHARLESTON, SC",
+   "address": "",
+   "건수": 4
+  },
+  {
+   "code": "CNDFG",
+   "name": "DAFENG PT, CHINA",
+   "address": "",
+   "건수": 22
+  },
+  {
+   "code": "VNHPH",
+   "name": "HAIPHONG, VIET NAM",
+   "address": "",
+   "건수": 61
+  },
+  {
+   "code": "JPHKT",
+   "name": "HAKATA/FUKUOKA, JAPAN",
+   "address": "",
+   "건수": 4
+  },
+  {
+   "code": "DEHAM",
+   "name": "HAMBURG, GERMANY",
+   "address": "",
+   "건수": 154
+  },
+  {
+   "code": "VNHAN",
+   "name": "HANOI, VIET NAM",
+   "address": "",
+   "건수": 4
+  },
+  {
+   "code": "FIHEL",
+   "name": "HELSINGFORS (HELSINKI), FINLAND",
+   "address": "",
+   "건수": 2
+  },
+  {
+   "code": "HKHKG",
+   "name": "HONG KONG, HONGKONG",
+   "address": "",
+   "건수": 4
+  },
+  {
+   "code": "KRINC",
+   "name": "INCHEON, KOREA",
+   "address": "",
+   "건수": 29
+  },
+  {
+   "code": "JPUKB",
+   "name": "KOBE, JAPAN",
+   "address": "",
+   "건수": 14
+  },
+  {
+   "code": "HUKOM",
+   "name": "KOMAROM, HUNGARY",
+   "address": "",
+   "건수": 4
+  },
+  {
+   "code": "SIKOP",
+   "name": "KOPER, SLOVENIA",
+   "address": "",
+   "건수": 200
+  },
+  {
+   "code": "MYBKI",
+   "name": "KOTA KINABALU, SABAH, MALAYSIA",
+   "address": "",
+   "건수": 38
+  },
+  {
+   "code": "FRLEH",
+   "name": "LE HAVRE, FRANCE",
+   "address": "",
+   "건수": 4
+  },
+  {
+   "code": "CNLYG",
+   "name": "LIANYUNGANG, CHINA",
+   "address": "",
+   "건수": 3
+  },
+  {
+   "code": "USLGB",
+   "name": "LONG BEACH, CA",
+   "address": "",
+   "건수": 16
+  },
+  {
+   "code": "USLAX",
+   "name": "LOS ANGELES, CA",
+   "address": "",
+   "건수": 9
+  },
+  {
+   "code": "PLMAA",
+   "name": "MALASZEWICZE, POLAND",
+   "address": "",
+   "건수": 357
+  },
+  {
+   "code": "JPNGO",
+   "name": "NAGOYA, AICHI, JAPAN",
+   "address": "",
+   "건수": 1
+  },
+  {
+   "code": "USNYC",
+   "name": "NEW YORK, NY",
+   "address": "",
+   "건수": 1
+  },
+  {
+   "code": "CNNBO",
+   "name": "NINGBO, CHINA",
+   "address": "",
+   "건수": 2
+  },
+  {
+   "code": "USORF",
+   "name": "NORFOLK, VA",
+   "address": "",
+   "건수": 4
+  },
+  {
+   "code": "KRPTK",
+   "name": "PYEONGTAEK PORT, KOREA",
+   "address": "",
+   "건수": 243
+  },
+  {
+   "code": "CNQIN",
+   "name": "QINGDAO, CHINA",
+   "address": "",
+   "건수": 3
+  },
+  {
+   "code": "HRRJK",
+   "name": "RIJEKA, CROATIA",
+   "address": "",
+   "건수": 271
+  },
+  {
+   "code": "USSAV",
+   "name": "SAVANNAH, GA",
+   "address": "",
+   "건수": 405
+  },
+  {
+   "code": "IDSRG",
+   "name": "SEMARANG, INDONESIA",
+   "address": "",
+   "건수": 26
+  },
+  {
+   "code": "CNSHA",
+   "name": "SHANGHAI HONGQIAO INTERNATIONAL APT",
+   "address": "",
+   "건수": 3
+  },
+  {
+   "code": "CNSGH",
+   "name": "SHANGHAI, CHINA",
+   "address": "",
+   "건수": 136
+  },
+  {
+   "code": "CNSHK",
+   "name": "SHEKOU, CHINA",
+   "address": "",
+   "건수": 19
+  },
+  {
+   "code": "JPSMZ",
+   "name": "SHIMIZU, JAPAN",
+   "address": "",
+   "건수": 1
+  },
+  {
+   "code": "SGSIN",
+   "name": "SINGAPORE, SINGAPORE",
+   "address": "",
+   "건수": 20
+  },
+  {
+   "code": "JPTYO",
+   "name": "TOKYO, JAPAN",
+   "address": "",
+   "건수": 2
+  },
+  {
+   "code": "ITTRS",
+   "name": "TRIESTE, ITALY",
+   "address": "",
+   "건수": 99
+  },
+  {
+   "code": "KRUSN",
+   "name": "ULSAN, KOREA",
+   "address": "",
+   "건수": 1
+  },
+  {
+   "code": "CNXIA",
+   "name": "XIAN, CHINA",
+   "address": "",
+   "건수": 84
+  },
+  {
+   "code": "CNYTN",
+   "name": "YANTIAN, CHINA",
+   "address": "",
+   "건수": 26
+  },
+  {
+   "code": "JPYOK",
+   "name": "YOKOHAMA, JAPAN",
+   "address": "",
+   "건수": 12
+  },
+  {
+   "code": "CNZJG",
+   "name": "ZHANGJIAGANG, CHINA",
+   "address": "",
+   "건수": 95
+  },
+  {
+   "code": "CNZGZ",
+   "name": "ZHENGZHOU, CHINA",
+   "address": "",
+   "건수": 2
+  }
+ ],
+ "이름 하나에 코드 여럿": [],
+ "임시": [
+  {
+   "code": "SGSIN",
+   "name": "SINGAPORE",
+   "address": "",
+   "확인": false
+  },
+  {
+   "code": "TWTPE",
+   "name": "TAIPEI",
+   "address": "",
+   "확인": false
+  },
+  {
+   "code": "CNDLC",
+   "name": "DALIAN",
+   "address": "",
+   "확인": false
+  },
+  {
+   "code": "KRICN",
+   "name": "INCHEON",
+   "address": "",
+   "확인": false
+  },
+  {
+   "code": "KRSEL",
+   "name": "SEOUL",
+   "address": "",
+   "확인": false
+  },
+  {
+   "code": "CNPVG",
+   "name": "PUDONG",
+   "address": "",
+   "확인": false
+  },
+  {
+   "code": "CNSHA",
+   "name": "SHANGHAI",
+   "address": "",
+   "확인": false
+  },
+  {
+   "code": "HKHKG",
+   "name": "HONG KONG",
+   "address": "",
+   "확인": false
+  },
+  {
+   "code": "CNCKG",
+   "name": "CHONGQING",
+   "address": "",
+   "확인": false
+  },
+  {
+   "code": "CNWUX",
+   "name": "WUXI",
+   "address": "",
+   "확인": false
+  },
+  {
+   "code": "JPNRT",
+   "name": "NARITA",
+   "address": "",
+   "확인": false
+  },
+  {
+   "code": "JPTYO",
+   "name": "TOKYO",
+   "address": "",
+   "확인": false
+  },
+  {
+   "code": "VNHAN",
+   "name": "HANOI",
+   "address": "",
+   "확인": false
+  },
+  {
+   "code": "VNSGN",
+   "name": "HO CHI MINH",
+   "address": "",
+   "확인": false
+  },
+  {
+   "code": "MYPEN",
+   "name": "PENANG",
+   "address": "",
+   "확인": false
+  },
+  {
+   "code": "THBKK",
+   "name": "BANGKOK",
+   "address": "",
+   "확인": false
+  }
+ ]
+}

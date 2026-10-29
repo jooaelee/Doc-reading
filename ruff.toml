@@ -1,0 +1,8 @@
+# 우시 OCR 폴더 전용 린트 설정. 저장소 뿌리(pyproject.toml)의 엄격한 꼴 규칙 대신 이 폴더에 쓴다.
+# 원래 다른 저장소에서 쓰던 코드라 한 줄 여러 import 같은 꼴이 많다. 꼴은 그대로 두고 실제 오류만 잡는다
+line-length = 140
+target-version = "py311"
+
+[lint]
+select = ["F", "E9"]
+ignore = ["F401", "F841", "E741", "F811", "F541", "F402"]
