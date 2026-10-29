@@ -112,3 +112,27 @@ def test_규칙_화면_API(env):
     assert v["suppliers"][0]["name"] == "ACME" and v["counts"]["off"] == 1
     data = local.get("/api/admin/export").json()
     assert local.post("/api/admin/import", json={"data": data}).json()["ok"]
+
+
+def test_쿠키_서명_열쇠는_주인만_읽고_환경변수가_먼저(env, monkeypatch):
+    import os
+    import stat
+    import threading
+    web, _ = env
+    monkeypatch.delenv("WUXI_SESSION_SECRET", raising=False)
+    keys = []
+    ts = [threading.Thread(target=lambda: keys.append(web._secret_key())) for _ in range(8)]
+    for t in ts:
+        t.start()
+    for t in ts:
+        t.join()
+    assert len(set(keys)) == 1 and len(keys[0]) == 64
+    f = os.path.join(web.wuxi_paths.WORK, ".secret")
+    if os.name == "posix":
+        assert stat.S_IMODE(os.stat(f).st_mode) == 0o600
+        os.chmod(f, 0o644)
+        web._secret_key()
+        assert stat.S_IMODE(os.stat(f).st_mode) == 0o600
+    monkeypatch.setenv("WUXI_SESSION_SECRET", "from-env")
+    assert web._secret_key() == "from-env"
+    assert web.cookie_ok(web.make_cookie("user"), "user")

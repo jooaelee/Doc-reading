@@ -82,6 +82,7 @@
 | `CLAUDE_CONFIG_DIR`, `WUXI_CLAUDE_CONFIG_DIR` | 없음(기본 계정) | 판독에 쓸 Claude 계정 폴더 |
 | `CLAUDE_BIN`, `WUXI_CLAUDE_BIN` | PATH 의 `claude` | Claude Code CLI 위치 |
 | `WUXI_PASSWORD_HASH`, `WUXI_ADMIN_HASH` | 없음 | 비밀번호 해시(JSON). 없으면 `WUXI_HOME/access.json`, `admin.json`, 저장소의 같은 파일 순 |
+| `WUXI_SESSION_SECRET` | 없음 | 로그인 쿠키 서명 열쇠. 없으면 `WUXI_HOME/.secret` 을 주인만 읽게 만들어 씀 |
 | `WUXI_ENABLED` | 1 | 0 이면 다른 서버에 붙지 않음 |
 | `DOCPIPE_OCR_ENGINE` | 자동 | `rapid`, `vision`(맥), `none` |
 

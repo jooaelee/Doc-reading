@@ -127,14 +127,38 @@ def check_password(pw: str, h: dict | None) -> bool:
     return hmac.compare_digest(base64.b64encode(dk).decode(), h["hash"])
 
 
-def _server_secret(who: str = "user") -> bytes:
-    """쿠키 서명 열쇠. 작업 폴더에 한 번 만들어 둔다. 비밀번호를 바꾸면 해시가 섞여 예전 쿠키가 모두 풀린다."""
+def _secret_key() -> str:
+    """쿠키 서명 열쇠. WUXI_SESSION_SECRET 이 있으면 그 값을 쓰고, 없으면 작업 폴더에 한 번 만든 파일을 쓴다.
+    파일은 주인만 읽고 쓰게(0600) 만들고, 요청 두 개가 동시에 와도 한 번만 만든다."""
+    env = (os.environ.get("WUXI_SESSION_SECRET") or "").strip()
+    if env:
+        return env
     f = Path(wuxi_paths.WORK) / ".secret"
     if not f.is_file():
         f.parent.mkdir(parents=True, exist_ok=True)
-        f.write_text(secrets.token_hex(32), encoding="utf-8")
+        try:
+            fd = os.open(f, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+        except FileExistsError:
+            pass
+        else:
+            with os.fdopen(fd, "w", encoding="utf-8") as fh:
+                fh.write(secrets.token_hex(32))
+    try:
+        os.chmod(f, 0o600)                 # 예전 판이 누구나 읽게 만든 파일도 좁힌다(Windows 는 읽기 전용 표시만 바뀜)
+    except OSError:
+        pass
+    for _ in range(50):                    # 다른 요청이 막 만들어 아직 비어 있으면 잠깐 기다린다
+        key = f.read_text(encoding="utf-8").strip()
+        if key:
+            return key
+        time.sleep(0.02)
+    raise RuntimeError("쿠키 서명 열쇠 파일이 비어 있습니다: " + str(f))
+
+
+def _server_secret(who: str = "user") -> bytes:
+    """비밀번호를 바꾸면 해시가 섞여 예전 쿠키가 모두 풀린다."""
     h = stored_hash(who) or {}
-    return hashlib.sha256((f.read_text(encoding="utf-8").strip() + who + h.get("hash", "")).encode()).digest()
+    return hashlib.sha256((_secret_key() + who + h.get("hash", "")).encode()).digest()
 
 
 def make_cookie(who: str = "user", name: str = "") -> str:
