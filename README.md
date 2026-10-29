@@ -56,7 +56,7 @@
 | 긴 묶음 빠짐 시험 | `python tools/make_sample.py --lines 120 --invoices 3 --name long` 다음 `python tools/selfcheck.py --name long` |
 | 실제 서류 일괄 점검 | `python tools/batch_check.py work/docs_raw/hx --limit 10` (이어 하려면 `--resume`) |
 | 규칙 보기, 옮기기 | `python tools/wuxi_rules.py list`, `export`, `import <파일>` |
-| 자동 시험 | `python -m pytest tests` (AI 를 부르지 않음. GitHub Actions 가 push 마다 돌림) |
+| 자동 시험 | `python -m pytest tests` (AI 를 부르지 않음. GitHub Actions 설정(`.github/workflows/test.yml`)이 있어, 계정에서 Actions 를 쓸 수 있으면 push 마다 돎) |
 
 ## 폴더
 
