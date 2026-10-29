@@ -1,0 +1,12 @@
+{
+ "rules": [
+  {"id": "d_check_amount", "kind": "check", "scope": "*", "status": "active", "source": "default", "data": {"check": "amount", "enabled": true, "tolerance": 0.01}, "created": 0, "updated": 0, "stats": {"applied": 0, "jobs": 0, "last": null}},
+  {"id": "d_check_lines_pl", "kind": "check", "scope": "*", "status": "active", "source": "default", "data": {"check": "lines_pl", "enabled": true}, "created": 0, "updated": 0, "stats": {"applied": 0, "jobs": 0, "last": null}},
+  {"id": "d_check_lines_cn", "kind": "check", "scope": "*", "status": "active", "source": "default", "data": {"check": "lines_cn", "enabled": true}, "created": 0, "updated": 0, "stats": {"applied": 0, "jobs": 0, "last": null}},
+  {"id": "d_check_pages", "kind": "check", "scope": "*", "status": "active", "source": "default", "data": {"check": "pages", "enabled": true}, "created": 0, "updated": 0, "stats": {"applied": 0, "jobs": 0, "last": null}},
+  {"id": "d_req_po", "kind": "required", "scope": "*", "status": "active", "source": "default", "data": {"columns": ["Purchase Order"], "required": true}, "created": 0, "updated": 0, "stats": {"applied": 0, "jobs": 0, "last": null}},
+  {"id": "d_req_material", "kind": "required", "scope": "*", "status": "active", "source": "default", "data": {"columns": ["Material", "Vendor Part No."], "required": true}, "created": 0, "updated": 0, "stats": {"applied": 0, "jobs": 0, "last": null}},
+  {"id": "d_req_qty", "kind": "required", "scope": "*", "status": "active", "source": "default", "data": {"columns": ["B/L quantity"], "required": true}, "created": 0, "updated": 0, "stats": {"applied": 0, "jobs": 0, "last": null}}
+ ],
+ "suppliers": {}
+}

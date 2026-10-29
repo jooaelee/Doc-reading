@@ -3,8 +3,10 @@
 docagent(KEROL 오더, B/L)와 별개다. 코드, 자료, 열쇠를 나누지 않는다. 혼자 띄울 수도 있고(아래 실행), docagent 서버가
 /wuxi 에 붙여 같은 포트로 낼 수도 있다(docai.web 이 이 모듈의 app 을 붙임).
 
-  python tools/wuxi_web.py set-password        # 화면 비밀번호를 정한다(해시만 access.json 에 남음)
-  python tools/wuxi_web.py serve --port 8767   # 혼자 띄우기. http://127.0.0.1:8767/
+  python tools/wuxi_web.py start              # 처음 쓰는 사람용. 비밀번호를 묻고, Claude 로그인을 확인하고, 띄워서 브라우저를 연다
+  python tools/wuxi_web.py set-password        # 고객 화면 비밀번호(해시만 남음)
+  python tools/wuxi_web.py set-admin-password  # 운영 화면 비밀번호
+  python tools/wuxi_web.py serve --port 8767   # 혼자 띄우기. http://127.0.0.1:8767/ (운영 화면은 /admin)
 
 경로(앱 기준, docagent 에 붙이면 앞에 /wuxi)
   GET  /                      화면
@@ -17,10 +19,14 @@ docagent(KEROL 오더, B/L)와 별개다. 코드, 자료, 열쇠를 나누지 �
   POST /api/jobs/{id}/retry   같은 서류로 다시 읽기
   DELETE /api/jobs/{id}       작업과 올린 서류 지우기
   GET  /api/jobs/{id}/pdf/{n} 올린 원본
-  POST /api/jobs/{id}/xlsx    화면에서 고친 값으로 G-ERP 엑셀
+  POST /api/jobs/{id}/xlsx    화면에서 고친 값으로 G-ERP 엑셀. 고친 칸은 학습 신호로 남는다
+  POST /api/jobs/{id}/confirm 최종 값 확정(정답 세트)
+  POST /api/jobs/{id}/review  「빠진 줄 의심」을 원본과 대조한 결과
+  GET  /admin                 운영 화면(현황, 규칙, 학습, 이력, 설정). /api/admin/* 는 운영 비밀번호로 들어온 사람만
 
 지키는 것
-- 비밀번호 하나(사내망 공용). 해시(PBKDF2)만 저장하고, 들어오면 12시간짜리 서명 쿠키를 준다. 틀리면 IP 마다 1분에 5번까지
+- 고객 화면 비밀번호와 운영 화면 비밀번호를 따로 둔다. 해시(PBKDF2)만 저장하고, 들어오면 12시간짜리 서명 쿠키를 준다.
+  틀리면 IP 마다 1분에 5번까지. 해시는 환경변수, WUXI_HOME, 저장소 순으로 찾는다(화면에서 바꾸면 WUXI_HOME 에 남는다)
 - 판독은 한 번에 하나(엔진 잠금). 일꾼 스레드 하나가 줄을 차례로 처리하고, 줄은 MAX_QUEUE 까지
 - 작업은 디스크(WUXI_HOME/jobs/<id>)에 남아 서버가 다시 떠도 결과가 보인다. 도중에 끊긴 작업은 「다시 읽기」로 잇는다
 - 올린 서류와 결과는 WUXI_KEEP_DAYS 일(기본 14) 뒤 지운다
@@ -47,20 +53,26 @@ from pathlib import Path
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import wuxi_paths  # noqa: E402
+import wuxi_learn  # noqa: E402
+import wuxi_rules  # noqa: E402
 
 from fastapi import FastAPI, Request, UploadFile  # noqa: E402
 from fastapi.responses import FileResponse, JSONResponse, Response  # noqa: E402
 
 BASE = Path(wuxi_paths.BASE)
 PAGE = BASE / "web" / "index.html"
+ADMIN_PAGE = BASE / "web" / "admin.html"
 STATIC = BASE / "web" / "static"
 ACCESS_FILE = BASE / "access.json"
+PW_FILES = {"user": "access.json", "admin": "admin.json"}
+PW_ENV = {"user": "WUXI_PASSWORD_HASH", "admin": "WUXI_ADMIN_HASH"}
 JOB_ID = re.compile(r"^[0-9a-f]{32}$")
 MAX_FILES = 30
 MAX_MB = 40
 MAX_QUEUE = 8
 SESSION_HOURS = 12
 COOKIE = "wuxi_session"
+ADMIN_COOKIE = "wuxi_admin"
 NO_STORE = {"Cache-Control": "no-store"}
 XLSX = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
 PBKDF2_ITER = 240_000
@@ -72,7 +84,7 @@ def jobs_root() -> Path:
 
 def keep_days() -> int:
     try:
-        return max(1, int(os.environ.get("WUXI_KEEP_DAYS") or 14))
+        return max(1, int(wuxi_paths.settings().get("keep_days") or os.environ.get("WUXI_KEEP_DAYS") or 14))
     except ValueError:
         return 14
 
@@ -85,17 +97,27 @@ def hash_password(pw: str, salt: bytes | None = None) -> dict:
             "hash": base64.b64encode(dk).decode()}
 
 
-def stored_hash() -> dict | None:
-    """WUXI_PASSWORD_HASH(access.json 과 같은 꼴의 JSON)가 먼저, 없으면 저장소의 access.json."""
-    raw = os.environ.get("WUXI_PASSWORD_HASH")
+def stored_hash(who: str = "user") -> dict | None:
+    """비밀번호 해시. 환경변수(WUXI_PASSWORD_HASH, WUXI_ADMIN_HASH), WUXI_HOME 의 파일, 저장소의 파일 순."""
+    raw = os.environ.get(PW_ENV[who])
     try:
         if raw:
             return json.loads(raw)
-        if ACCESS_FILE.is_file():
-            return json.loads(ACCESS_FILE.read_text(encoding="utf-8"))
+        for f in (Path(wuxi_paths.WORK) / PW_FILES[who], BASE / PW_FILES[who]):
+            if f.is_file():
+                return json.loads(f.read_text(encoding="utf-8"))
     except ValueError:
         return None
     return None
+
+
+def save_password(who: str, pw: str) -> Path:
+    if len(pw or "") < 8:
+        raise ValueError("비밀번호는 8자 이상이어야 합니다.")
+    f = Path(wuxi_paths.WORK) / PW_FILES[who]
+    f.parent.mkdir(parents=True, exist_ok=True)
+    f.write_text(json.dumps(hash_password(pw), indent=1) + "\n", encoding="utf-8")
+    return f
 
 
 def check_password(pw: str, h: dict | None) -> bool:
@@ -105,31 +127,42 @@ def check_password(pw: str, h: dict | None) -> bool:
     return hmac.compare_digest(base64.b64encode(dk).decode(), h["hash"])
 
 
-def _server_secret() -> bytes:
+def _server_secret(who: str = "user") -> bytes:
     """쿠키 서명 열쇠. 작업 폴더에 한 번 만들어 둔다. 비밀번호를 바꾸면 해시가 섞여 예전 쿠키가 모두 풀린다."""
     f = Path(wuxi_paths.WORK) / ".secret"
     if not f.is_file():
         f.parent.mkdir(parents=True, exist_ok=True)
         f.write_text(secrets.token_hex(32), encoding="utf-8")
-    h = stored_hash() or {}
-    return hashlib.sha256((f.read_text(encoding="utf-8").strip() + h.get("hash", "")).encode()).digest()
+    h = stored_hash(who) or {}
+    return hashlib.sha256((f.read_text(encoding="utf-8").strip() + who + h.get("hash", "")).encode()).digest()
 
 
-def make_cookie() -> str:
+def make_cookie(who: str = "user", name: str = "") -> str:
     exp = int(time.time()) + SESSION_HOURS * 3600
-    sig = hmac.new(_server_secret(), str(exp).encode(), hashlib.sha256).hexdigest()
-    return f"{exp}.{sig}"
+    nm = base64.urlsafe_b64encode(name.encode("utf-8")[:60]).decode().rstrip("=")
+    sig = hmac.new(_server_secret(who), f"{exp}.{nm}".encode(), hashlib.sha256).hexdigest()
+    return f"{exp}.{nm}.{sig}"
 
 
-def cookie_ok(value: str | None) -> bool:
+def cookie_ok(value: str | None, who: str = "user") -> bool:
+    return cookie_name(value, who) is not None
+
+
+def cookie_name(value: str | None, who: str = "user") -> str | None:
+    """쿠키가 맞으면 들어온 사람의 이름(없으면 빈 글), 틀리면 None."""
     try:
-        exp, sig = (value or "").split(".", 1)
+        exp, nm, sig = (value or "").split(".", 2)
         if int(exp) < time.time():
-            return False
+            return None
     except ValueError:
-        return False
-    want = hmac.new(_server_secret(), exp.encode(), hashlib.sha256).hexdigest()
-    return hmac.compare_digest(sig, want)
+        return None
+    want = hmac.new(_server_secret(who), f"{exp}.{nm}".encode(), hashlib.sha256).hexdigest()
+    if not hmac.compare_digest(sig, want):
+        return None
+    try:
+        return base64.urlsafe_b64decode(nm + "=" * (-len(nm) % 4)).decode("utf-8")
+    except ValueError:
+        return ""
 
 
 _fails: dict[str, list[float]] = {}
@@ -282,7 +315,12 @@ def run(job: dict, store: Store) -> None:
     try:
         res = wuxi_engine.read_bundle(job["pdfs"], name=job.get("title") or "올린 서류", on_step=on_step)
         job["payload"] = wuxi_engine.payload(job.get("title") or "올린 서류", job["pdfs"], res)
-        job.update(status="done", wall=round(time.time() - job["started"], 1))
+        job.update(status="done", wall=round(time.time() - job["started"], 1), supplier=res.get("supplier"),
+                   supplier_name=res.get("supplier_name"), edits=None, review=None, confirmed=None)
+        try:
+            wuxi_rules.record_applied(res.get("trace") or [], job["id"])
+        except Exception:      # 적용 건수를 못 올려도 결과는 낸다
+            pass
     except Exception as e:
         job.update(status="error", error=wuxi_engine.friendly_error(str(e)), wall=round(time.time() - job["started"], 1))
     store.save(job)
@@ -293,7 +331,8 @@ def _summary(job: dict) -> dict:
     comp = p.get("completeness") or {}
     return {"id": job["id"], "status": job.get("status"), "created": job.get("created"), "files": _files(job),
             "lines": len(p.get("items") or []), "verdict": comp.get("verdict"),
-            "fail": (p.get("counts") or {}).get("FAIL"), "wall": job.get("wall")}
+            "fail": (p.get("counts") or {}).get("FAIL"), "wall": job.get("wall"),
+            "supplier": job.get("supplier_name") or "", "confirmed": bool(job.get("confirmed"))}
 
 
 def _files(job: dict) -> list[str]:
@@ -319,7 +358,19 @@ app = FastAPI(title="Hynix Wuxi G-ERP item reader", docs_url=None, redoc_url=Non
 
 
 def _authed(request: Request) -> bool:
-    return cookie_ok(request.cookies.get(COOKIE))
+    """고객 화면. 운영 비밀번호로 들어온 사람도 볼 수 있다."""
+    return cookie_ok(request.cookies.get(COOKIE)) or _admin(request) is not None
+
+
+def _admin(request: Request) -> str | None:
+    """운영 화면에 들어온 사람의 이름. 안 들어왔으면 None."""
+    return cookie_name(request.cookies.get(ADMIN_COOKIE), "admin")
+
+
+def _who(request: Request) -> str:
+    name = _admin(request)
+    ip = request.client.host if request.client else ""
+    return (name or "관리자") + (f" ({ip})" if ip else "")
 
 
 def _need_login() -> JSONResponse:
@@ -344,9 +395,16 @@ def static(name: str) -> Response:
     return FileResponse(f, media_type=media, headers={"Cache-Control": "max-age=86400"})
 
 
+@app.get("/admin", include_in_schema=False)
+@app.get("/admin/", include_in_schema=False)
+def admin_index() -> Response:
+    return FileResponse(ADMIN_PAGE, media_type="text/html; charset=utf-8", headers=NO_STORE)
+
+
 @app.get("/api/state")
 def state(request: Request) -> JSONResponse:
     return JSONResponse({"configured": stored_hash() is not None, "auth": _authed(request),
+                         "admin": _admin(request) is not None,
                          "limits": {"files": MAX_FILES, "mb": MAX_MB, "keepDays": keep_days()}}, headers=NO_STORE)
 
 
@@ -500,6 +558,16 @@ async def xlsx(jid: str, request: Request) -> Response:
     body = body if isinstance(body, dict) else {}
     p = job["payload"]
     items = body.get("items") if isinstance(body.get("items"), list) else p["items"]
+    items = [x for x in items[:5000] if isinstance(x, dict)]
+    if isinstance(body.get("items"), list):
+        try:
+            with STORE.lock:
+                wuxi_learn.record_edits(job, items, body.get("deleted"), by=_who(request))
+                wuxi_learn.save_final(job, items)
+                job["downloads"] = (job.get("downloads") or 0) + 1
+                STORE.save(job)
+        except Exception as e:     # 학습 기록이 실패해도 엑셀은 낸다
+            log_access(request, "learn-error", jid, 500, str(e))
     t = {"head": [body.get("head") if isinstance(body.get("head"), dict) else p["head"]],
          "items": [x for x in items[:5000] if isinstance(x, dict)],
          "inv": body.get("inv") if isinstance(body.get("inv"), list) else p["inv"],
@@ -514,27 +582,120 @@ async def xlsx(jid: str, request: Request) -> Response:
                     headers={**NO_STORE, "Content-Disposition": f'attachment; filename="{fname}"'})
 
 
+@app.post("/api/jobs/{jid}/confirm")
+async def confirm(jid: str, request: Request) -> JSONResponse:
+    if not _authed(request):
+        return _need_login()
+    job = STORE.get(jid)
+    if not job or not job.get("payload"):
+        return _bad("결과가 없습니다", 404)
+    try:
+        body = await request.json()
+    except ValueError:
+        body = {}
+    items = [x for x in ((body or {}).get("items") or [])[:5000] if isinstance(x, dict)]
+    if not items:
+        return _bad("확정할 줄이 없습니다.")
+    with STORE.lock:
+        summary = wuxi_learn.confirm(job, items, by=_who(request))
+        STORE.save(job)
+    log_access(request, "confirm", jid, note=f"{len(items)} rows")
+    return JSONResponse({"ok": True, "edits": summary})
+
+
+@app.post("/api/jobs/{jid}/review")
+async def review(jid: str, request: Request) -> JSONResponse:
+    if not _authed(request):
+        return _need_login()
+    job = STORE.get(jid)
+    if not job or not job.get("payload"):
+        return _bad("결과가 없습니다", 404)
+    try:
+        body = await request.json()
+    except ValueError:
+        body = {}
+    result = str((body or {}).get("result") or "")
+    if result not in ("ok", "missing"):
+        return _bad("판정은 ok 또는 missing 입니다.")
+    with STORE.lock:
+        out = wuxi_learn.review(job, result, by=_who(request))
+        STORE.save(job)
+    log_access(request, "review", jid, note=result)
+    return JSONResponse({"ok": True, **out})
+
+
+# ───────────────────────────────────────── 운영 화면 API
+import wuxi_admin  # noqa: E402
+
+wuxi_admin.install(app, STORE, sys.modules[__name__])
+
+
 # ───────────────────────────────────────── 명령
-def _set_password() -> None:
-    pw = getpass.getpass("화면 비밀번호(8자 이상): ")
+def _ask_password(label: str) -> str:
+    pw = getpass.getpass(f"{label}(8자 이상): ")
     if len(pw) < 8:
         sys.exit("8자 이상이어야 합니다")
     if getpass.getpass("한 번 더: ") != pw:
         sys.exit("두 번 넣은 값이 다릅니다")
-    ACCESS_FILE.write_text(json.dumps(hash_password(pw), indent=1) + "\n", encoding="utf-8")
-    print(f"저장했습니다: {ACCESS_FILE} (해시만 들어 있습니다. 커밋해서 배포하면 서버에 반영됩니다)")
+    return pw
+
+
+def _set_password(who: str = "user") -> None:
+    label = "고객 화면 비밀번호" if who == "user" else "운영 화면 비밀번호"
+    f = save_password(who, _ask_password(label))
+    print(f"저장했습니다: {f} (해시만 들어 있습니다)")
+
+
+def _start(host: str, port: int, open_browser: bool) -> None:
+    """처음 쓰는 사람용. 빠진 것을 하나씩 묻고 확인한 뒤 띄운다."""
+    import wuxi_admin
+    print("우시 서류 판독을 준비합니다.\n")
+    if stored_hash("admin") is None:
+        print("운영 화면 비밀번호가 없습니다. 규칙과 학습을 관리할 때 씁니다.")
+        _set_password("admin")
+    if stored_hash("user") is None:
+        print("고객 화면 비밀번호가 없습니다. 서류를 올리는 사람이 씁니다.")
+        _set_password("user")
+    st = wuxi_admin.claude_status(force=True)
+    if not st.get("found"):
+        print("\nClaude Code CLI 를 찾지 못했습니다. 설치한 뒤 다시 실행하십시오.")
+        print("  Windows  : PowerShell 에서  irm https://claude.ai/install.ps1 | iex")
+        print("  맥, 리눅스: curl -fsSL https://claude.ai/install.sh | bash")
+        sys.exit(1)
+    if not st.get("loggedIn"):
+        print("\nClaude 에 로그인되어 있지 않습니다. 터미널에서  claude  를 실행해 자기 계정으로 로그인한 뒤 다시 실행하십시오.")
+        sys.exit(1)
+    who = st.get("email") or st.get("authMethod") or "로그인됨"
+    print(f"\nClaude 계정: {who}  (CLI {st.get('version') or ''})")
+    url = f"http://{'127.0.0.1' if host in ('0.0.0.0', '') else host}:{port}/"
+    print(f"고객 화면  {url}\n운영 화면  {url}admin\n끝내려면 Ctrl+C")
+    if open_browser:
+        import webbrowser
+        threading.Timer(1.5, lambda: webbrowser.open(url)).start()
+    import uvicorn
+    uvicorn.run(app, host=host, port=port, log_level="warning")
 
 
 def main(argv=None):
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     sub = ap.add_subparsers(dest="cmd", required=True)
-    sub.add_parser("set-password", help="화면 비밀번호를 정한다")
-    s = sub.add_parser("serve", help="혼자 띄운다")
-    s.add_argument("--host", default="127.0.0.1")
-    s.add_argument("--port", type=int, default=int(os.environ.get("PORT") or 8767))
+    sub.add_parser("set-password", help="고객 화면 비밀번호를 정한다")
+    sub.add_parser("set-admin-password", help="운영 화면 비밀번호를 정한다")
+    for name, help_ in (("serve", "혼자 띄운다"), ("start", "처음 쓰는 사람용: 준비를 확인하고 띄운 뒤 브라우저를 연다")):
+        s = sub.add_parser(name, help=help_)
+        s.add_argument("--host", default="127.0.0.1")
+        s.add_argument("--port", type=int, default=int(os.environ.get("PORT") or 8767))
+        if name == "start":
+            s.add_argument("--no-browser", action="store_true")
     a = ap.parse_args(argv)
     if a.cmd == "set-password":
-        _set_password()
+        _set_password("user")
+        return
+    if a.cmd == "set-admin-password":
+        _set_password("admin")
+        return
+    if a.cmd == "start":
+        _start(a.host, a.port, not a.no_browser)
         return
     import uvicorn
     uvicorn.run(app, host=a.host, port=a.port, log_level="warning")

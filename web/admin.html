@@ -1,0 +1,554 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>우시 판독 관리</title>
+<script>if (/\/admin\/$/.test(location.pathname)) location.replace(location.pathname.replace(/\/$/, '') + location.search + location.hash);</script>
+<link rel="stylesheet" href="static/wuxi.css">
+<style>
+.tiles{display:grid;grid-template-columns:repeat(6,minmax(0,1fr));background:var(--card);border:1px solid var(--line);border-radius:var(--r)}
+.tile{padding:14px 16px;border-left:1px solid var(--line);min-width:0}
+.tile:first-child{border-left:0}
+.tile .v{font-size:24px;font-weight:700;font-variant-numeric:tabular-nums;line-height:1.2}
+.tile .k{color:var(--ink2);font-size:12.5px;font-weight:600;margin-top:2px}
+.tile .s{color:var(--muted);font-size:12px}
+.tile.warn .v{color:var(--warn)}
+.docs{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px}
+.doc{border:1px solid var(--line);border-radius:var(--r-s);padding:12px 14px;background:#fff}
+.doc b{display:flex;justify-content:space-between;gap:8px;font-size:13.5px}
+.doc b span{color:var(--muted);font-weight:500;font-size:12px}
+.doc p{margin:4px 0 0;color:var(--ink2);font-size:12.5px}
+.drawer{position:fixed;top:0;right:0;bottom:0;width:min(600px,100%);background:#fff;border-left:1px solid var(--line);box-shadow:-12px 0 32px rgba(0,0,0,.1);z-index:40;display:flex;flex-direction:column}
+.drawer .dh{padding:16px 20px;border-bottom:1px solid var(--line);display:flex;gap:12px;align-items:flex-start}
+.drawer .dh h3{margin:0;font-size:16px}
+.drawer .db{padding:16px 20px 30px;overflow:auto;display:grid;gap:18px;align-content:start}
+.drawer h4{margin:0 0 8px;font-size:13px;color:var(--ink2)}
+.pagechips{display:flex;flex-wrap:wrap;gap:5px}
+.pagechips .chip{font-size:12px}
+.chk-list{display:grid;gap:6px}
+.chk-list div{display:flex;gap:8px;align-items:baseline;font-size:13px}
+.chk-list .nm{font-weight:600;min-width:120px}
+.rules-layout{display:grid;grid-template-columns:270px minmax(0,1fr);gap:16px;align-items:start}
+.scopes{padding:10px;position:sticky;top:112px}
+.scopes h4{font-size:12px;color:var(--muted);margin:12px 8px 6px;font-weight:700}
+.scope{display:flex;gap:8px;align-items:center;padding:8px 10px;border-radius:8px;cursor:pointer;width:100%;border:0;background:none;text-align:left}
+.scope:hover{background:var(--bg)}
+.scope.on{background:var(--accent-soft)}
+.scope .nm{flex:1;min-width:0;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.scope .ct{color:var(--muted);font-size:12px;white-space:nowrap}
+.scope .ct b{color:var(--warn)}
+.seg{display:flex;gap:6px;flex-wrap:wrap;margin:14px 0 12px}
+.seg button{border:1px solid var(--line2);background:#fff;border-radius:99px;padding:5px 13px;cursor:pointer;font-weight:600;font-size:13px;color:var(--ink2)}
+.seg button.on{background:var(--accent);border-color:var(--accent);color:#fff}
+.seg button .n{font-weight:500;opacity:.75;margin-left:4px;font-size:12px}
+.rule-row td:first-child{width:72px}
+.rule-row .txt{font-weight:600}
+.rule-row .src{color:var(--muted);font-size:12px}
+.rule-row .acts{white-space:nowrap;text-align:right}
+.inherit{margin-top:14px}
+.inherit table td{color:var(--ink2)}
+.form-box{border:1px solid var(--line);background:#fafbfc;border-radius:var(--r-s);padding:14px;margin-bottom:12px}
+.cd{border:1px solid var(--line);border-radius:var(--r);background:#fff;padding:16px 18px}
+.cd+.cd{margin-top:12px}
+.cd .top-l{display:flex;gap:6px;align-items:center;flex-wrap:wrap}
+.cd .txt{font-size:15px;font-weight:700;margin:8px 0 10px}
+.cd .two{display:grid;grid-template-columns:minmax(0,1.2fr) minmax(0,1fr);gap:14px}
+.cd .ev{font-size:12.5px}
+.cd .ev li{margin:3px 0}
+.cd .pv{background:#fafbfc;border:1px solid var(--line);border-radius:var(--r-s);padding:10px 12px;font-size:12.5px}
+.cd .pv .big{font-size:14px;font-weight:700;margin-bottom:2px}
+.cd .acts{display:flex;gap:8px;justify-content:flex-end;margin-top:12px;flex-wrap:wrap}
+.arrow{color:var(--muted);margin:0 4px}
+.tl{display:grid;gap:0}
+.tl .it{display:grid;grid-template-columns:130px 90px minmax(0,1fr);gap:12px;padding:10px 2px;border-bottom:1px solid var(--line);align-items:baseline}
+.tl .it:last-child{border-bottom:0}
+.tl .tm{color:var(--muted);font-size:12.5px;font-variant-numeric:tabular-nums}
+.tl .tx{font-weight:600}
+.tl .mt{color:var(--muted);font-size:12px;margin-top:2px}
+.cmd{display:flex;gap:6px;align-items:center;background:#f3f5f8;border:1px solid var(--line);border-radius:6px;padding:6px 8px;font-family:var(--mono);font-size:12.5px;margin:4px 0}
+.cmd span{flex:1;min-width:0;overflow-x:auto;white-space:nowrap}
+ol.howto{margin:6px 0 0;padding-left:20px;font-size:13px}
+ol.howto li{margin:6px 0}
+@media screen and (max-width:1100px){.tiles{grid-template-columns:repeat(3,minmax(0,1fr))}.tile:nth-child(4){border-left:0}.tile:nth-child(n+4){border-top:1px solid var(--line)}.docs{grid-template-columns:repeat(2,minmax(0,1fr))}.cd .two{grid-template-columns:minmax(0,1fr)}}
+@media screen and (max-width:860px){.rules-layout{grid-template-columns:minmax(0,1fr)}.scopes{position:static}.tl .it{grid-template-columns:minmax(0,1fr)}}
+</style>
+</head>
+<body>
+
+<div id="gate" class="gate" hidden>
+  <div class="card">
+    <h1>우시 판독 관리</h1>
+    <p id="gateLead">운영 비밀번호로 들어갑니다. 이름을 적으면 규칙을 바꾼 기록에 함께 남습니다.</p>
+    <form id="loginForm" class="form">
+      <label class="f">이름(선택)<input id="lgName" class="in" autocomplete="name" maxlength="30"></label>
+      <label class="f">운영 비밀번호<input id="lgPw" class="in" type="password" autocomplete="current-password" required></label>
+      <div class="err" id="lgErr"></div>
+      <button class="btn pri" type="submit">들어가기</button>
+    </form>
+    <form id="setupForm" class="form" hidden>
+      <div class="note info">처음 쓰는 PC입니다. 운영 화면과 고객 화면의 비밀번호를 정합니다. 8자 이상입니다.</div>
+      <label class="f">이름(선택)<input id="suName" class="in" maxlength="30"></label>
+      <label class="f">운영 화면 비밀번호<input id="suAdmin" class="in" type="password" autocomplete="new-password" required minlength="8"></label>
+      <label class="f">고객 화면 비밀번호<input id="suUser" class="in" type="password" autocomplete="new-password" minlength="8"></label>
+      <div class="err" id="suErr"></div>
+      <button class="btn pri" type="submit">정하고 들어가기</button>
+    </form>
+  </div>
+</div>
+
+<div id="app" hidden>
+  <header class="top">
+    <h1>우시 판독 관리</h1>
+    <span class="sub">현황, 규칙, 학습을 관리합니다. 바꾼 규칙은 다음 판독부터 쓰입니다.</span>
+    <span class="sp"></span>
+    <span class="who" id="who"></span>
+    <a class="btn ghost" href="./">고객 화면</a>
+    <button class="btn ghost" id="logout" type="button">나가기</button>
+  </header>
+  <nav class="tabs" id="tabs">
+    <button data-t="status" type="button">현황</button>
+    <button data-t="rules" type="button">규칙<span class="n" id="nRules"></span></button>
+    <button data-t="learn" type="button">학습<span class="n" id="nLearn"></span></button>
+    <button data-t="history" type="button">이력</button>
+    <button data-t="settings" type="button">설정</button>
+  </nav>
+  <div class="page" id="page"></div>
+</div>
+<div id="drawerRoot"></div>
+<div id="modalRoot"></div>
+
+<script>
+const ROOT = location.pathname.replace(/admin\/?$/, '').replace(/[^/]*$/, '');
+const $ = s => document.querySelector(s);
+const esc = s => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+let TAB = 'status', DAYS = 14, OV = null, RV = null, LV = null, HV = null, SV = null, SCOPE = '*', KIND = 'code', HFILTER = '', ADD_OPEN = false;
+const SRC = {default: '기본값', manual: '사람 입력', learned: '학습'};
+const KIND_ORDER = ['code', 'alias', 'header', 'guide', 'check', 'required'];
+const KIND_DESC = {
+  code: '품명이나 부품 번호가 같은 줄의 SAP 코드, 자재 코드, 원산지 같은 값을 채웁니다. 판독이 끝난 뒤 적용되고, 확인 화면에서 규칙으로 채운 칸은 왼쪽 청록 선으로 표시됩니다.',
+  alias: '단위나 원산지의 표기를 G-ERP에 맞게 바꿉니다. 판독이 끝난 뒤 적용됩니다.',
+  header: '서류 표에서 칸을 찾는 열 이름입니다. 기본 열 이름은 판독 지침에 이미 들어 있고, 공급사 서류에만 있는 열 이름을 더할 수 있습니다. 판독할 때 쓰입니다.',
+  guide: '공급사 서류의 특징을 AI에게 알리는 문장입니다. 판독할 때 쓰입니다. 영어나 한국어로 씁니다.',
+  check: 'AI 답과 상관없는 근거로 빠진 줄을 의심합니다. 서류 특성상 맞지 않는 검사는 그 공급사에서만 끕니다.',
+  required: '비어 있으면 확인 화면에서 주의로 표시할 G-ERP 열입니다. 「또는」으로 묶은 열은 하나만 차도 됩니다.'
+};
+
+async function api(path, opt = {}) {
+  const r = await fetch(ROOT + path, opt);
+  if (r.status === 401) { showGate(); throw new Error('login'); }
+  const ct = r.headers.get('content-type') || '';
+  if (!ct.includes('json')) { if (!r.ok) throw new Error('요청이 실패했습니다(' + r.status + ')'); return r; }
+  const d = await r.json();
+  if (!r.ok) throw new Error(d.error || ('요청이 실패했습니다(' + r.status + ')'));
+  return d;
+}
+const post = (p, b) => api(p, {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(b || {})});
+function toast(msg, bad) { const t = document.createElement('div'); t.className = 'toast' + (bad ? ' bad' : ''); t.textContent = msg; document.body.appendChild(t); setTimeout(() => t.remove(), bad ? 6000 : 3200); }
+function fail(e) { if (e && e.message !== 'login') toast(e.message, true); }
+const when = ts => { if (!ts) return ''; const d = new Date(ts * 1000); return `${d.getMonth() + 1}/${d.getDate()} ${d.toTimeString().slice(0, 5)}`; };
+const num = n => (n == null ? 0 : n).toLocaleString('ko-KR');
+
+function reasonModal(title, text, okLabel, opt = {}) {
+  return new Promise(res => {
+    const root = $('#modalRoot');
+    root.innerHTML = `<div class="modal-bg"><div class="modal" role="dialog" aria-modal="true"><h3>${esc(title)}</h3><p>${esc(text)}</p>
+      ${opt.noReason ? '' : `<label class="f">바꾼 까닭(선택)<input class="in" id="mReason" maxlength="300" placeholder="예: 공급사가 열 이름을 바꿈"></label>`}
+      <div class="acts"><button class="btn" type="button" data-v="0">그만두기</button><button class="btn ${opt.danger ? 'danger' : 'pri'}" type="button" data-v="1">${esc(okLabel)}</button></div></div></div>`;
+    const done = v => { const r = v ? ($('#mReason') ? $('#mReason').value : '') : null; root.innerHTML = ''; res(r); };
+    root.querySelectorAll('button[data-v]').forEach(b => b.onclick = () => done(b.dataset.v === '1'));
+    root.querySelector('.modal-bg').addEventListener('keydown', e => { if (e.key === 'Escape') done(false); if (e.key === 'Enter' && e.target.id === 'mReason') done(true); });
+    (root.querySelector('#mReason') || root.querySelector('[data-v="1"]')).focus();
+  });
+}
+
+// ───────── 들어가기
+async function showGate() {
+  $('#app').hidden = true; $('#gate').hidden = false;
+  let st = {}; try { st = await (await fetch(ROOT + 'api/admin/state')).json(); } catch (e) {}
+  $('#setupForm').hidden = !st.setup; $('#loginForm').hidden = !!st.setup;
+  if (!st.configured && !st.setup) { $('#lgErr').textContent = '운영 비밀번호가 아직 없습니다. 서버에서 set-admin-password 명령으로 정하십시오.'; }
+  setTimeout(() => (st.setup ? $('#suAdmin') : $('#lgPw')).focus(), 0);
+}
+$('#loginForm').onsubmit = async e => {
+  e.preventDefault(); $('#lgErr').textContent = '';
+  try { await post('api/admin/login', {password: $('#lgPw').value, name: $('#lgName').value}); $('#lgPw').value = ''; boot(); }
+  catch (err) { if (err.message !== 'login') $('#lgErr').textContent = err.message; }
+};
+$('#setupForm').onsubmit = async e => {
+  e.preventDefault(); $('#suErr').textContent = '';
+  try { await post('api/admin/setup', {admin: $('#suAdmin').value, user: $('#suUser').value, name: $('#suName').value}); boot(); }
+  catch (err) { if (err.message !== 'login') $('#suErr').textContent = err.message; }
+};
+$('#logout').onclick = async () => { await fetch(ROOT + 'api/admin/logout', {method: 'POST'}); showGate(); };
+
+async function boot() {
+  const st = await (await fetch(ROOT + 'api/admin/state')).json();
+  if (!st.auth) { showGate(); return; }
+  $('#gate').hidden = true; $('#app').hidden = false; $('#who').textContent = st.name ? st.name + '님' : '';
+  const h = location.hash.slice(1); go(['status', 'rules', 'learn', 'history', 'settings'].includes(h) ? h : 'status');
+  refreshCounts();
+}
+document.querySelectorAll('#tabs button').forEach(b => b.onclick = () => go(b.dataset.t));
+window.addEventListener('hashchange', () => { const h = location.hash.slice(1); if (h && h !== TAB) go(h); });
+function go(t) {
+  TAB = t; history.replaceState(null, '', '#' + t);
+  document.querySelectorAll('#tabs button').forEach(b => b.classList.toggle('on', b.dataset.t === t));
+  $('#page').innerHTML = '<p class="muted">불러오는 중입니다.</p>';
+  ({status: loadStatus, rules: loadRules, learn: loadLearn, history: loadHistory, settings: loadSettings})[t]().catch(fail);
+}
+async function refreshCounts() {
+  try { const lv = LV || await api('api/admin/learn'); const n = (lv.candidates || []).length;
+    $('#nLearn').textContent = n ? n : ''; $('#nLearn').classList.toggle('hot', n > 0);
+    const rv = RV || await api('api/admin/rules'); $('#nRules').textContent = rv.counts.active;
+  } catch (e) {}
+}
+
+// ───────── 현황
+const DOCS = [
+  ['인보이스', '품목 줄의 기준입니다. 품명, 수량, 단위, 단가, 금액, PO 번호, PO 품목 번호, SAP 코드를 줄마다 읽고 총액과 대조합니다.'],
+  ['포장명세서', '줄마다 순중량, 총중량, 케이스 번호를 읽어 같은 PO 품목의 인보이스 줄에 붙입니다.'],
+  ['통관 용도설명서', 'SAP 코드와 원산지를 읽어 인보이스 줄에 채웁니다. 품명 앞부분이 여러 품목에 걸리면 코드를 붙이지 않습니다.'],
+  ['운송장', 'B/L 번호, 개수, 중량을 읽어 엑셀의 선적 헤더에 씁니다. 약관과 구매 주문서는 판독에 보내지 않습니다.']
+];
+async function loadStatus() {
+  OV = await api('api/admin/overview?days=' + DAYS); const s = OV.summary, v = s.verdicts;
+  const kinds = s.kinds || {};
+  $('#page').innerHTML = `
+    <div class="row" style="margin-bottom:12px"><h2 style="margin:0;font-size:17px">처리 현황</h2><span class="sp"></span>
+      <label class="small muted">기간 <select class="in" id="days">${[7, 14, 30, 90].map(d => `<option value="${d}" ${d === DAYS ? 'selected' : ''}>최근 ${d}일</option>`).join('')}</select></label>
+      <button class="btn sm" id="reload" type="button">새로 고침</button></div>
+    <div class="tiles">
+      <div class="tile"><div class="v">${num(s.done)}</div><div class="k">처리한 묶음</div><div class="s">${s.working ? `읽는 중 ${s.working}` : ''}${s.error ? ` 오류 ${s.error}` : ''}</div></div>
+      <div class="tile"><div class="v">${num(s.lines)}</div><div class="k">품목 줄</div><div class="s">엑셀로 나간 줄</div></div>
+      <div class="tile ${v['빠진 줄 의심'] ? 'warn' : ''}"><div class="v">${num(v['빠진 줄 의심'])}</div><div class="k">빠진 줄 의심</div><div class="s">확인 못 함 ${num(v['확인 못 함'])}</div></div>
+      <div class="tile"><div class="v">${num(s.edited)}</div><div class="k">사람이 고친 묶음</div><div class="s">확정 ${num(s.confirmed)}</div></div>
+      <div class="tile"><div class="v">${num(s.ruleCells)}</div><div class="k">규칙이 채운 칸</div><div class="s">쓰는 규칙 ${num(OV.rules.active)}개</div></div>
+      <div class="tile"><div class="v">${s.avgWall == null ? '없음' : s.avgWall + '초'}</div><div class="k">평균 걸린 시간</div><div class="s">묶음 하나 기준</div></div>
+    </div>
+    <div class="card" style="margin-top:14px"><h2>서류별 처리</h2><p class="desc">묶음 안의 쪽을 서류 종류별로 가른 뒤, 종류마다 아래처럼 읽습니다. 숫자는 기간 안에 들어온 쪽 수입니다.</p>
+      <div class="docs">${DOCS.map(([k, t]) => `<div class="doc"><b>${k}<span>${num(kinds[k] || 0)}쪽</span></b><p>${t}</p></div>`).join('')}</div></div>
+    <div class="card"><div class="card-h"><div><h2>들어온 서류 묶음</h2><p class="desc" style="margin:0">줄을 누르면 쪽 분류, 처리 단계, 적용된 규칙, 사람이 고친 값을 봅니다.</p></div></div>
+      ${OV.jobs.length ? `<div class="tbl-wrap"><table class="t"><thead><tr><th>올린 시각</th><th>공급사</th><th>서류</th><th class="num">품목 줄</th><th>빠짐 검사</th><th class="num">규칙</th><th class="num">사람 수정</th><th>상태</th><th class="num">걸린 시간</th></tr></thead><tbody>
+      ${OV.jobs.map(j => `<tr class="click" data-id="${j.id}"><td class="nowrap">${when(j.created)}</td><td>${esc(j.supplier || '알아보지 못함')}</td>
+        <td><div class="small">${esc(Object.entries(j.kinds).map(([k, n]) => k + ' ' + n).join(', ') || (j.files || []).join(', '))}</div><div class="tiny muted">파일 ${j.files.length}개, ${j.pages}쪽</div></td>
+        <td class="num">${j.status === 'done' ? num(j.lines) : ''}</td><td>${verdictBadge(j)}</td>
+        <td class="num">${j.ruleCells ? `<span class="bd rule">${j.ruleCells}칸</span>` : ''}${j.promptRules ? `<div class="tiny muted">지침 ${j.promptRules}</div>` : ''}</td>
+        <td class="num">${j.edited || j.added ? `${j.edited}칸${j.added ? `, 줄 ${j.added}` : ''}` : ''}</td><td>${statusBadge(j)}</td><td class="num">${j.wall ? j.wall + '초' : ''}</td></tr>`).join('')}
+      </tbody></table></div>` : '<div class="empty"><b>기간 안에 들어온 서류가 없습니다</b>고객 화면에서 서류를 올리면 여기에 쌓입니다.</div>'}</div>`;
+  $('#days').onchange = e => { DAYS = +e.target.value; loadStatus().catch(fail); };
+  $('#reload').onclick = () => loadStatus().catch(fail);
+  document.querySelectorAll('tr[data-id]').forEach(tr => tr.onclick = () => openJob(tr.dataset.id));
+}
+function verdictBadge(j) {
+  if (j.status !== 'done') return '';
+  const m = {'이상 없음': 'ok', '빠진 줄 의심': 'warn', '확인 못 함': 'off'}[j.verdict] || 'off';
+  const rv = j.review === 'ok' ? '<div class="tiny muted">사람이 빠진 줄 없음으로 닫음</div>' : j.review === 'missing' ? '<div class="tiny muted">사람이 빠진 줄 있음으로 닫음</div>' : '';
+  return `<span class="bd ${m}">${esc(j.verdict || '')}</span>${rv}`;
+}
+function statusBadge(j) {
+  if (j.status === 'queued') return '<span class="bd def">기다림</span>';
+  if (j.status === 'running') return '<span class="bd active">읽는 중</span>';
+  if (j.status === 'error') return '<span class="bd bad">오류</span>';
+  if (j.confirmed) return '<span class="bd ok">확정</span>';
+  return j.downloads ? '<span class="bd def">엑셀 받음</span>' : '<span class="bd def">확인 전</span>';
+}
+async function openJob(id) {
+  let d; try { d = await api('api/admin/jobs/' + id); } catch (e) { return fail(e); }
+  const st = {ok: ['ok', '맞음'], bad: ['bad', '어긋남'], skip: ['off', '근거 없음'], off: ['off', '꺼 둠']};
+  const byFile = {}; (d.pageList || []).forEach(p => (byFile[p.file] = byFile[p.file] || []).push(p));
+  const c = d.completeness || {};
+  $('#drawerRoot').innerHTML = `<div class="drawer" role="dialog" aria-label="작업 자세히"><div class="dh"><div style="flex:1;min-width:0"><h3>${esc(d.supplier || '공급사를 알아보지 못함')}</h3>
+      <div class="small muted">${when(d.created)} | 파일 ${d.files.length}개, ${d.pages}쪽 | ${d.wall ? d.wall + '초' : ''}${d.shipper && d.shipper !== d.supplier ? ` | 송하인 ${esc(d.shipper)}` : ''}</div></div>
+      <a class="btn sm" href="./#${d.id}" target="_blank" rel="noopener">고객 화면에서 열기</a><button class="btn ghost sm" id="dClose" type="button">닫기</button></div>
+    <div class="db">
+      ${d.error ? `<div class="note bad">${esc(d.error)}</div>` : ''}
+      <div><h4>쪽 분류</h4>${Object.entries(byFile).map(([f, ps]) => `<div class="small" style="margin:6px 0 4px;font-weight:600">${esc(f)}</div><div class="pagechips">${ps.map(p => `<span class="chip">${p.no}쪽 ${esc(p.kindName)}${p.scan ? ' (스캔)' : ''}</span>`).join('')}</div>`).join('') || '<p class="small muted">기록이 없습니다.</p>'}</div>
+      <div><h4>처리 단계</h4><ul class="steps">${(d.steps || []).map(s => `<li class="${s.done ? 'done' : ''}">${esc(s.text)}${s.sec ? `<span class="sec">${s.sec}초</span>` : ''}</li>`).join('')}</ul>
+        ${d.llm && d.llm.calls ? `<p class="tiny muted" style="margin:6px 0 0">AI 호출 ${d.llm.calls}회${d.llm.model ? `, 모델 ${esc(d.llm.model)}` : ''}</p>` : ''}</div>
+      <div><h4>빠짐 검사 <span class="bd ${({'이상 없음': 'ok', '빠진 줄 의심': 'warn'})[c.verdict] || 'off'}">${esc(c.verdict || '')}</span></h4>
+        <div class="chk-list">${(c.checks || []).map(x => `<div><span class="dot ${(st[x.state] || ['off'])[0]}"></span><span class="nm">${esc(x.name)}</span><span class="small muted">${esc(x.note || (st[x.state] || ['', ''])[1])}</span></div>`).join('')}</div>
+        ${d.reviewInfo && d.reviewInfo.result ? `<p class="small" style="margin:8px 0 0">사람 판정: ${d.reviewInfo.result === 'ok' ? '원본과 대조했고 빠진 줄 없음' : '빠진 줄 있음'}</p>` : ''}</div>
+      <div><h4>적용된 규칙 ${d.rules.length ? `<span class="bd rule">${d.rules.length}</span>` : ''}</h4>
+        ${d.rules.length ? `<div class="tbl-wrap"><table class="t"><thead><tr><th>규칙</th><th>자리</th><th>바뀐 값</th></tr></thead><tbody>${d.rules.map(r => `<tr><td><div>${esc(r.text)}</div><div class="tiny muted">${esc(r.scope)}</div></td>
+          <td class="nowrap small">${r.row ? `${r.row}번째 줄 ${esc(r.fieldName)}` : '판독 지침'}</td><td class="small">${r.row ? `${esc(r.before || '빈 칸')}<span class="arrow">→</span>${esc(r.after)}` : ''}</td></tr>`).join('')}</tbody></table></div>` : '<p class="small muted">이 묶음에 쓰인 규칙이 없습니다.</p>'}</div>
+      <div><h4>사람이 고친 값 ${d.edits.length || d.editSummary.added ? `<span class="bd def">${d.edits.length}칸${d.editSummary.added ? `, 줄 ${d.editSummary.added}개 더함` : ''}${d.editSummary.deleted ? `, 줄 ${d.editSummary.deleted}개 지움` : ''}</span>` : ''}</h4>
+        ${d.edits.length ? `<div class="tbl-wrap"><table class="t"><thead><tr><th>자리</th><th>AI 값</th><th>최종 값</th></tr></thead><tbody>${d.edits.map(e => `<tr><td class="small nowrap">${e.row + 1}번째 줄 ${esc(e.col)}</td><td class="small">${esc(e.before || '빈 칸')}</td><td class="small">${esc(e.after || '빈 칸')}</td></tr>`).join('')}</tbody></table></div>`
+          : `<p class="small muted">${d.downloads || d.confirmed ? '고친 칸 없이 엑셀을 받았습니다.' : '아직 엑셀을 받거나 확정하지 않았습니다.'}</p>`}</div>
+    </div></div>`;
+  $('#dClose').onclick = () => $('#drawerRoot').innerHTML = '';
+  document.addEventListener('keydown', function esc_(e) { if (e.key === 'Escape') { $('#drawerRoot').innerHTML = ''; document.removeEventListener('keydown', esc_); } });
+}
+
+// ───────── 규칙
+async function loadRules() { RV = await api('api/admin/rules'); drawRules(); refreshCounts(); }
+const fieldName = f => (RV.fields || {})[f] || f;
+function badge(r) {
+  if (r.status === 'candidate') return '<span class="bd cand">후보</span>';
+  if (r.status === 'off') return '<span class="bd off">꺼짐</span>';
+  if (r.promoted_from) return `<span class="bd up" title="${esc(r.promotedFromName)}에서 격상">격상</span>`;
+  return '<span class="bd active">반영</span>';
+}
+function stats(r) { const s = r.stats || {}; return s.applied || s.jobs ? `${num(s.applied)}칸, ${num(s.jobs)}건${s.last ? `<div class="tiny muted">${when(s.last)}</div>` : ''}` : '<span class="muted">아직 없음</span>'; }
+function drawRules() {
+  const sups = RV.suppliers || [];
+  if (SCOPE !== '*' && !sups.some(s => s.id === SCOPE)) SCOPE = '*';
+  const sc = SCOPE === '*' ? null : sups.find(s => s.id === SCOPE);
+  const mine = RV.rules.filter(r => r.scope === SCOPE && r.status !== 'deleted');
+  const kn = k => mine.filter(r => r.kind === k && r.status !== 'candidate').length;
+  $('#page').innerHTML = `<div class="rules-layout">
+    <aside class="card scopes">
+      <button class="scope ${SCOPE === '*' ? 'on' : ''}" data-s="*" type="button"><span class="nm">공통</span><span class="ct">모든 공급사</span></button>
+      <h4>공급사 ${sups.length}곳</h4>
+      ${sups.map(s => `<button class="scope ${SCOPE === s.id ? 'on' : ''}" data-s="${esc(s.id)}" type="button" title="${esc(s.name)}"><span class="nm">${esc(s.name)}</span>
+        <span class="ct">${s.active ? `규칙 ${s.active}` : ''}${s.candidate ? ` <b>후보 ${s.candidate}</b>` : ''}${!s.active && !s.candidate ? `${s.jobs}건` : ''}</span></button>`).join('') || '<p class="tiny muted" style="margin:4px 10px">처음 보는 공급사는 판독할 때 송하인 이름으로 자동으로 생깁니다.</p>'}
+      <div style="padding:10px 6px 4px"><button class="btn sm" id="addSup" type="button" style="width:100%;justify-content:center">공급사 추가</button></div>
+    </aside>
+    <section>
+      <div class="card">
+        <div class="card-h"><div><h2>${sc ? esc(sc.name) : '공통 규칙'} ${sc && sc.source === 'auto' ? '<span class="bd def">자동으로 생김</span>' : ''}</h2>
+          <p class="desc" style="margin:0">${sc ? `이 공급사 서류에만 쓰입니다. 같은 자리에 공통 규칙이 있으면 이 공급사 규칙이 이깁니다. 지금까지 ${sc.jobs}건을 읽었습니다.` : '모든 공급사 서류에 쓰입니다. 공급사 규칙이 있으면 그쪽이 먼저입니다.'}</p></div>
+          ${sc ? '<button class="btn sm" id="editSup" type="button">공급사 정보 고치기</button>' : ''}</div>
+        ${sc ? `<div class="row small"><span class="muted">서류에서 알아보는 낱말</span><div class="chips">${(sc.match || []).map(w => `<span class="chip">${esc(w)}</span>`).join('') || '<span class="muted">없음</span>'}</div></div>${sc.note ? `<p class="small" style="margin:8px 0 0">${esc(sc.note)}</p>` : ''}` : ''}
+      </div>
+      <div class="seg">${KIND_ORDER.map(k => `<button data-k="${k}" class="${KIND === k ? 'on' : ''}" type="button">${{code: '코드 사전', alias: '값 바꾸기', header: '열 이름', guide: '판독 지침', check: '빠짐 검사', required: '필수 칸'}[k]}${['check', 'required'].includes(k) ? '' : `<span class="n">${kn(k)}</span>`}</button>`).join('')}</div>
+      <div class="card" id="kindPanel"></div>
+    </section></div>`;
+  document.querySelectorAll('.scope').forEach(b => b.onclick = () => { SCOPE = b.dataset.s; ADD_OPEN = false; drawRules(); });
+  document.querySelectorAll('.seg button').forEach(b => b.onclick = () => { KIND = b.dataset.k; ADD_OPEN = false; drawRules(); });
+  $('#addSup').onclick = () => supplierForm(null);
+  if ($('#editSup')) $('#editSup').onclick = () => supplierForm(sc);
+  drawKind(mine);
+}
+function supplierForm(s) {
+  const root = $('#modalRoot');
+  root.innerHTML = `<div class="modal-bg"><div class="modal"><h3>${s ? '공급사 정보 고치기' : '공급사 추가'}</h3>
+    <p>서류의 앞쪽 글이나 송하인 이름에 아래 낱말이 있으면 이 공급사 규칙을 씁니다.</p>
+    <div class="form"><label class="f">공급사 이름<input class="in" id="sName" value="${esc(s ? s.name : '')}" maxlength="80"></label>
+      <label class="f">알아보는 낱말(쉼표로 나눔, 3자 이상)<input class="in" id="sMatch" value="${esc(s ? (s.match || []).join(', ') : '')}"></label>
+      <label class="f">메모(선택)<input class="in" id="sNote" value="${esc(s ? s.note : '')}" maxlength="300"></label><div class="err" id="sErr"></div></div>
+    <div class="acts"><button class="btn" type="button" data-v="0">그만두기</button><button class="btn pri" type="button" data-v="1">저장</button></div></div></div>`;
+  root.querySelector('[data-v="0"]').onclick = () => root.innerHTML = '';
+  root.querySelector('[data-v="1"]').onclick = async () => {
+    try { const d = await post('api/admin/suppliers', {id: s ? s.id : null, name: $('#sName').value, match: $('#sMatch').value || $('#sName').value, note: $('#sNote').value});
+          root.innerHTML = ''; SCOPE = d.supplier.id; toast('공급사를 저장했습니다.'); loadRules(); }
+    catch (e) { if (e.message !== 'login') $('#sErr').textContent = e.message; }
+  };
+  $('#sName').focus();
+}
+function ruleRows(list, inherited) {
+  if (!list.length) return '';
+  return `<div class="tbl-wrap"><table class="t"><thead><tr><th>상태</th><th>규칙</th><th class="num">적용</th>${inherited ? '' : '<th></th>'}</tr></thead><tbody>
+    ${list.map(r => `<tr class="rule-row"><td>${badge(r)}</td><td><div class="txt">${esc(r.text)}</div><div class="src">${SRC[r.source] || ''}${r.promoted_from ? `, ${esc(r.promotedFromName)}에서 격상` : ''}${r.evidence && r.evidence.length ? `, 근거 ${r.evidence.length}건` : ''}</div></td>
+      <td class="num small">${stats(r)}</td>${inherited ? '' : `<td class="acts">${ruleActs(r)}</td>`}</tr>`).join('')}</tbody></table></div>`;
+}
+function ruleActs(r) {
+  const b = [];
+  if (r.status === 'candidate') { b.push(`<button class="btn sm pri" data-a="activate" data-id="${r.id}" type="button">반영</button>`); b.push(`<button class="btn sm" data-a="reject" data-id="${r.id}" type="button">거절</button>`); }
+  else if (r.status === 'active') { b.push(`<button class="btn sm" data-a="off" data-id="${r.id}" type="button">끄기</button>`);
+    if (r.scope !== '*' && !['check', 'required'].includes(r.kind)) b.push(`<button class="btn sm up" data-a="promote" data-id="${r.id}" type="button" title="모든 공급사에 쓰는 공통 규칙으로 올립니다">격상</button>`); }
+  else if (r.status === 'off') b.push(`<button class="btn sm" data-a="activate" data-id="${r.id}" type="button">켜기</button>`);
+  if (r.source !== 'default' && r.status !== 'candidate') b.push(`<button class="btn sm ghost danger" data-a="delete" data-id="${r.id}" type="button">지우기</button>`);
+  return b.join(' ');
+}
+const ACT = {activate: ['규칙을 반영합니다', '다음 판독부터 이 규칙을 씁니다.', '반영'], off: ['규칙을 끕니다', '다음 판독부터 쓰지 않습니다. 언제든 다시 켤 수 있습니다.', '끄기'],
+  reject: ['후보를 거절합니다', '거절한 후보는 같은 수정이 다시 생겨도 후보로 올라오지 않습니다.', '거절'],
+  promote: ['공통 규칙으로 격상합니다', '이 공급사뿐 아니라 모든 공급사 서류에 이 규칙을 씁니다.', '격상'],
+  delete: ['규칙을 지웁니다', '지운 규칙은 이력에만 남습니다.', '지우기']};
+function bindActs(after) {
+  document.querySelectorAll('[data-a]').forEach(b => b.onclick = async () => {
+    const [t, x, ok] = ACT[b.dataset.a], reason = await reasonModal(t, x, ok, {danger: ['delete', 'reject'].includes(b.dataset.a)});
+    if (reason == null) return;
+    try { const d = await post(`api/admin/rules/${b.dataset.id}/${b.dataset.a}`, {reason, scope: b.dataset.scope});
+          toast({activate: '반영했습니다', off: '껐습니다', reject: '거절했습니다', promote: '공통 규칙으로 격상했습니다', delete: '지웠습니다'}[b.dataset.a] + ': ' + d.text); LV = null; after(); }
+    catch (e) { fail(e); }
+  });
+}
+function opts(list, cur) { return list.map(([v, t]) => `<option value="${esc(v)}" ${v === cur ? 'selected' : ''}>${esc(t)}</option>`).join(''); }
+function drawKind(mine) {
+  const list = mine.filter(r => r.kind === KIND && r.status !== 'candidate'), cands = mine.filter(r => r.kind === KIND && r.status === 'candidate');
+  const inh = SCOPE === '*' ? [] : RV.rules.filter(r => r.scope === '*' && r.kind === KIND && r.status === 'active');
+  const panel = $('#kindPanel');
+  let form = '';
+  if (KIND === 'code') form = `<div class="row"><label class="f">맞출 칸<select class="in" id="fOn">${opts([['desc', '품명'], ['part', '부품 번호']])}</select></label>
+      <label class="f">맞추는 법<select class="in" id="fMatch">${opts([['exact', '같을 때'], ['contains', '그 글자가 들어 있을 때']])}</select></label>
+      <label class="f" style="flex:2">맞출 값<input class="in" id="fKey" placeholder="예: O-RING VITON 25MM"></label></div>
+      <div class="row"><label class="f">채울 칸<select class="in" id="fField">${opts(RV.codeFields.map(f => [f, fieldName(f)]))}</select></label>
+      <label class="f">채울 값<input class="in" id="fVal" placeholder="예: P3187097"></label>
+      <label class="f">방식<select class="in" id="fMode">${opts([['fill', '빈 칸만 채움'], ['replace', '있는 값도 바꿈']])}</select></label></div>`;
+  if (KIND === 'alias') form = `<div class="row"><label class="f">칸<select class="in" id="fField">${opts(RV.aliasFields.map(f => [f, fieldName(f)]))}</select></label>
+      <label class="f">바꿀 값<input class="in" id="fFrom" placeholder="예: PCS."></label><label class="f">바꾼 값<input class="in" id="fTo" placeholder="예: PCS"></label></div>`;
+  if (KIND === 'header') form = `<div class="row"><label class="f">칸<select class="in" id="fField">${opts(RV.headerFields.map(f => [f, fieldName(f)]))}</select></label>
+      <label class="f" style="flex:2">서류 표의 열 이름<input class="in" id="fHead" placeholder="예: Customer Item No."></label></div>`;
+  if (KIND === 'guide') form = `<label class="f">지침<textarea class="in" id="fText" placeholder="예: This supplier prints the SAP code in the column headed Item Code on the second line of each row."></textarea></label>
+      <label class="f">화면에 보일 이름(선택)<input class="in" id="fLabel" maxlength="120" placeholder="예: SAP 코드가 각 줄 둘째 줄의 Item Code 열에 있음"></label>`;
+  if (KIND === 'required') form = `<p class="small" style="margin:0">하나 이상 고르면 「또는」으로 묶습니다.</p><div class="chips" id="fCols">${RV.gerpColumns.map(c => `<label class="chip"><input type="checkbox" value="${esc(c)}"> ${esc(c)}</label>`).join('')}</div>`;
+  const addable = KIND !== 'check';
+  let body = `<div class="card-h"><div><h2>${{code: '코드 사전', alias: '값 바꾸기', header: '열 이름', guide: '판독 지침', check: '빠짐 검사', required: '필수 칸'}[KIND]}</h2><p class="desc" style="margin:0">${KIND_DESC[KIND]}</p></div>
+    ${addable ? `<button class="btn ${ADD_OPEN ? '' : 'pri'} sm" id="openAdd" type="button">${ADD_OPEN ? '닫기' : '규칙 더하기'}</button>` : ''}</div>`;
+  if (addable && ADD_OPEN) body += `<div class="form-box form">${form}<div class="row"><label class="f" style="flex:2">까닭(선택)<input class="in" id="fReason" maxlength="300"></label>
+      <button class="btn pri" id="doAdd" type="button" style="align-self:flex-end">더하기</button></div><div class="err" id="fErr"></div></div>`;
+  if (KIND === 'header') body += `<h4 class="small" style="margin:6px 0">기본 열 이름 <span class="muted" style="font-weight:400">판독 지침에 들어 있어 바꾸지 않습니다</span></h4>
+      <div class="tbl-wrap" style="margin-bottom:12px"><table class="t"><tbody>${Object.entries(RV.builtinHeaders).map(([f, hs]) => `<tr><td class="nowrap" style="width:150px">${esc(fieldName(f))}</td><td><div class="chips">${hs.map(h => `<span class="chip">${esc(h)}</span>`).join('')}</div></td></tr>`).join('')}</tbody></table></div>`;
+  if (KIND === 'check') body += checkPanel(mine);
+  else {
+    if (cands.length) body += `<div class="note warn" style="margin-bottom:10px">이 범위에 학습 후보가 ${cands.length}개 있습니다. 「학습」 탭에서 근거를 보고 반영하십시오.</div>`;
+    body += list.length ? ruleRows(list) : `<div class="empty" style="padding:24px"><b>${SCOPE === '*' ? '공통' : '이 공급사'} 규칙이 없습니다</b>${addable ? '「규칙 더하기」로 넣거나, 확인 화면에서 사람이 고친 값으로 학습 후보가 생기면 반영합니다.' : ''}</div>`;
+    if (inh.length) body += `<div class="inherit"><h4 class="small" style="margin:0 0 6px">이 공급사에도 쓰이는 공통 규칙 ${inh.length}개</h4>${ruleRows(inh, true)}
+      ${KIND === 'required' ? `<div class="chips" style="margin-top:8px">${inh.filter(r => r.data.required !== false).map(r => `<button class="btn sm" type="button" data-unreq="${esc(JSON.stringify(r.data.columns))}">이 공급사에서 「${esc(r.data.columns.join(' 또는 '))}」 빼기</button>`).join('')}</div>` : ''}</div>`;
+  }
+  panel.innerHTML = body;
+  if ($('#openAdd')) $('#openAdd').onclick = () => { ADD_OPEN = !ADD_OPEN; drawKind(mine); };
+  if ($('#fOn')) $('#fOn').onchange = () => { $('#fMatch').disabled = $('#fOn').value === 'part'; };
+  if ($('#doAdd')) $('#doAdd').onclick = async () => {
+    const v = id => ($('#' + id) || {}).value;
+    const data = KIND === 'code' ? {on: v('fOn'), match: v('fOn') === 'part' ? 'exact' : v('fMatch'), key: v('fKey'), field: v('fField'), value: v('fVal'), mode: v('fMode')}
+      : KIND === 'alias' ? {field: v('fField'), from: v('fFrom'), to: v('fTo')} : KIND === 'header' ? {field: v('fField'), header: v('fHead')}
+      : KIND === 'guide' ? {text: v('fText'), label: v('fLabel')} : {columns: [...document.querySelectorAll('#fCols input:checked')].map(x => x.value), required: true};
+    try { const d = await post('api/admin/rules', {kind: KIND, scope: SCOPE, data, reason: v('fReason')}); toast('반영했습니다: ' + d.text); ADD_OPEN = false; loadRules(); }
+    catch (e) { if (e.message !== 'login') $('#fErr').textContent = e.message; }
+  };
+  document.querySelectorAll('[data-unreq]').forEach(b => b.onclick = async () => {
+    const cols = JSON.parse(b.dataset.unreq), reason = await reasonModal('이 공급사에서 필수 칸을 뺍니다', `「${cols.join(' 또는 ')}」 열이 비어도 이 공급사 서류는 주의로 표시하지 않습니다.`, '빼기');
+    if (reason == null) return;
+    try { await post('api/admin/rules', {kind: 'required', scope: SCOPE, data: {columns: cols, required: false}, reason}); toast('뺐습니다.'); loadRules(); } catch (e) { fail(e); }
+  });
+  bindActs(loadRules);
+}
+function checkPanel(mine) {
+  const checks = RV.checks, common = RV.rules.filter(r => r.scope === '*' && r.kind === 'check');
+  const rows = Object.entries(checks).map(([k, c]) => {
+    const cr = common.find(r => r.data.check === k), sr = SCOPE === '*' ? null : mine.find(r => r.kind === 'check' && r.data.check === k && r.status === 'active');
+    const any = SCOPE === '*' ? null : mine.find(r => r.kind === 'check' && r.data.check === k);
+    const eff = sr || (cr && cr.status === 'active' ? cr : null), on = eff ? eff.data.enabled !== false : true;
+    const tol = k === 'amount' ? ((eff && eff.data.tolerance != null) ? eff.data.tolerance : 0.01) : null;
+    return `<tr><td style="width:56px"><label class="sw"><input type="checkbox" data-ck="${k}" ${on ? 'checked' : ''} aria-label="${esc(c.name)}"><span></span></label></td>
+      <td><div style="font-weight:600">${esc(c.name)}</div><div class="small muted">${esc(c.desc)}</div></td>
+      <td class="small nowrap">${tol != null ? `허용 차이 <input class="in" style="width:80px" data-tol="${k}" value="${tol}" inputmode="decimal">` : ''}</td>
+      <td class="small nowrap">${SCOPE === '*' ? '' : sr ? `<span class="bd active">이 공급사만</span> <button class="btn sm ghost" data-reset="${sr.id}" type="button">공통 따르기</button>` : '<span class="muted">공통 따름</span>'}</td></tr>`;
+  }).join('');
+  setTimeout(() => {
+    document.querySelectorAll('[data-ck], [data-tol]').forEach(el => el.onchange = async () => {
+      const k = el.dataset.ck || el.dataset.tol, row = el.closest('tr'), en = row.querySelector('[data-ck]').checked;
+      const tolEl = row.querySelector('[data-tol]'), data = {check: k, enabled: en}; if (tolEl) data.tolerance = tolEl.value;
+      const reason = await reasonModal(SCOPE === '*' ? '공통 빠짐 검사를 바꿉니다' : '이 공급사의 빠짐 검사를 바꿉니다', `「${checks[k].name}」 ${en ? '켬' : '끔'}${tolEl ? `, 허용 차이 ${tolEl.value}` : ''}. 다음 판독부터 쓰입니다.`, '바꾸기');
+      if (reason == null) { drawRules(); return; }
+      const ex = SCOPE === '*' ? common.find(r => r.data.check === k) : mine.find(r => r.kind === 'check' && r.data.check === k);
+      try { if (ex) { await post(`api/admin/rules/${ex.id}/edit`, {data, reason}); if (ex.status !== 'active') await post(`api/admin/rules/${ex.id}/activate`, {reason}); }
+            else await post('api/admin/rules', {kind: 'check', scope: SCOPE, data, reason});
+            toast('빠짐 검사를 바꿨습니다.'); loadRules(); } catch (e) { fail(e); drawRules(); }
+    });
+    document.querySelectorAll('[data-reset]').forEach(b => b.onclick = async () => {
+      const reason = await reasonModal('공통 설정을 따릅니다', '이 공급사만의 설정을 지우고 공통 빠짐 검사를 씁니다.', '공통 따르기'); if (reason == null) return;
+      try { await post(`api/admin/rules/${b.dataset.reset}/delete`, {reason}); toast('공통 설정을 따릅니다.'); loadRules(); } catch (e) { fail(e); }
+    });
+  });
+  return `<div class="tbl-wrap"><table class="t"><tbody>${rows}</tbody></table></div><p class="tiny muted" style="margin:8px 0 0">허용 차이는 인보이스 통화 단위입니다. 줄 금액 합과 총액의 차이가 이 값보다 크면 어긋남으로 봅니다.</p>`;
+}
+
+// ───────── 학습
+async function loadLearn() {
+  LV = await api('api/admin/learn'); const f = LV.feedback;
+  $('#page').innerHTML = `
+    <div class="card"><div class="card-h"><div><h2>학습</h2><p class="desc" style="margin:0">고객이 확인 화면에서 고친 값과 「빠진 줄 의심」 판정으로 규칙 후보를 만듭니다. 근거와 미리보기를 보고 반영하면 다음 판독부터 쓰입니다. 저절로 반영하지 않습니다.</p></div>
+      <button class="btn sm" id="lReload" type="button">새로 고침</button></div>
+      <div class="row small" style="gap:18px"><span>최근 30일</span><span>고친 칸 <b>${num(f.cells)}</b></span><span>더한 줄 <b>${num(f.added)}</b></span>
+        <span>빠진 줄 없음 판정 <b>${num(f.reviewsOk)}</b></span><span>빠진 줄 있음 판정 <b>${num(f.reviewsMissing)}</b></span><span>확정 <b>${num(f.confirms)}</b></span></div></div>
+    <h3 style="font-size:15px;margin:20px 0 10px">규칙 후보 ${LV.candidates.length ? `<span class="bd cand">${LV.candidates.length}</span>` : ''}</h3>
+    ${LV.candidates.length ? LV.candidates.map(candCard).join('') : '<div class="card"><div class="empty"><b>아직 후보가 없습니다</b>고객이 확인 화면에서 값을 고친 뒤 엑셀을 받거나 확정하면 여기에 후보가 생깁니다.</div></div>'}
+    <h3 style="font-size:15px;margin:22px 0 10px">격상 제안</h3>
+    <div class="card">${LV.promotions.length ? `<div class="tbl-wrap"><table class="t"><tbody>${LV.promotions.map(p => `<tr><td><div style="font-weight:600">${esc(p.text)}</div>
+      <div class="small muted">${esc(p.scope_name)} 규칙. ${esc(p.others.join(', '))}에서도 같은 수정이 있었습니다. 적용 ${num(p.applied)}칸</div></td>
+      <td class="acts" style="text-align:right"><button class="btn sm up" data-a="promote" data-id="${p.rule}" type="button">공통으로 격상</button></td></tr>`).join('')}</tbody></table></div>`
+      : '<p class="small muted" style="margin:0">공급사 규칙 가운데 다른 공급사에서도 같은 수정이 나온 것이 생기면 여기에서 공통 규칙으로 올리자고 제안합니다. 「규칙」 탭에서 언제든 직접 격상할 수도 있습니다.</p>'}</div>
+    <h3 style="font-size:15px;margin:22px 0 10px">최근 반영과 해제</h3>
+    <div class="card">${LV.recent.length ? `<div class="tl">${LV.recent.map(histItem).join('')}</div><p class="small" style="margin:10px 0 0"><a href="#history">이력 전체 보기</a></p>` : '<p class="small muted" style="margin:0">아직 기록이 없습니다.</p>'}</div>`;
+  $('#lReload').onclick = () => loadLearn().catch(fail);
+  bindActs(() => { loadLearn().catch(fail); refreshCounts(); });
+  refreshCounts();
+}
+function candCard(c) {
+  const pv = c.preview || {};
+  const pvHtml = !pv.computable ? `<div class="pv"><div class="big">미리보기</div>${esc(pv.note || '')}</div>`
+    : `<div class="pv"><div class="big">지난 작업 ${pv.jobs}건에 적용하면 ${pv.changed}칸이 바뀝니다</div>
+        ${pv.changed ? `사람이 정한 값과 맞음 <b style="color:var(--ok)">${pv.good}</b>, 다름 <b style="color:var(--bad)">${pv.bad}</b>${pv.unknown ? `, 정한 값 없음 ${pv.unknown}` : ''}` : '바뀌는 칸이 없습니다(이미 같은 값이거나 맞는 줄이 없음).'}
+        ${(pv.examples || []).length ? `<ul style="margin:6px 0 0;padding-left:16px">${pv.examples.slice(0, 3).map(e => `<li>${esc(e.desc || e.row + '번째 줄')}: ${esc(e.before || '빈 칸')}<span class="arrow">→</span>${esc(e.after)} ${e.ok === true ? '<span class="bd ok">맞음</span>' : e.ok === false ? '<span class="bd bad">다름</span>' : ''}</li>`).join('')}</ul>` : ''}</div>`;
+  return `<div class="cd"><div class="top-l"><span class="bd cand">후보</span><span class="bd kind">${esc(c.kindName)}</span><span class="chip">${esc(c.scopeName)}</span>
+      <span class="small muted">근거 ${c.evidenceJobs}건${c.evidenceCount > c.evidenceJobs ? `(${c.evidenceCount}칸)` : ''}, ${when(c.updated_evidence || c.updated)}</span></div>
+    <div class="txt">${esc(c.text)}</div>
+    <div class="two"><div><div class="small" style="font-weight:600;margin-bottom:4px">근거</div><ul class="ev" style="margin:0;padding-left:16px">${(c.evidence || []).map(e => `<li>${when(e.time)} ${e.col ? esc(e.col) + ' ' : ''}${e.desc ? `「${esc(e.desc.slice(0, 40))}」 ` : ''}${esc(e.before || '빈 칸')}<span class="arrow">→</span>${esc(e.after)}</li>`).join('')}</ul></div>${pvHtml}</div>
+    <div class="acts"><button class="btn sm" data-a="reject" data-id="${c.id}" type="button">거절</button>
+      ${c.scope !== '*' && !['check', 'required'].includes(c.kind) ? `<button class="btn sm up" data-a="activate" data-scope="*" data-id="${c.id}" type="button" title="모든 공급사에 씁니다">공통으로 반영</button>` : ''}
+      <button class="btn sm pri" data-a="activate" data-id="${c.id}" type="button">${c.scope === '*' ? '반영' : esc(c.scopeName) + '에 반영'}</button></div></div>`;
+}
+
+// ───────── 이력
+const EV_CLS = {create: 'active', activate: 'active', promote: 'up', off: 'off', reject: 'off', delete: 'off', candidate: 'cand', edit: 'def', settings: 'def', import: 'def', supplier: 'def'};
+function histItem(h) {
+  const extra = h.event === 'promote' ? `${esc(h.from_name || '')}에서 공통으로` : h.scopeName ? esc(h.scopeName) : '';
+  return `<div class="it"><div class="tm">${esc((h.time || '').slice(5, 16))}</div><div><span class="bd ${EV_CLS[h.event] || 'def'}">${esc(h.eventName || h.event)}</span></div>
+    <div><div class="tx">${esc(h.text || '')}</div><div class="mt">${[extra, h.by ? esc(h.by) : '', h.reason ? '까닭: ' + esc(h.reason) : '', h.before ? '이전: ' + esc(h.before) : ''].filter(Boolean).join(' | ')}</div></div></div>`;
+}
+async function loadHistory() {
+  HV = await api('api/admin/history' + (HFILTER ? '?event=' + HFILTER : ''));
+  const F = [['', '전체'], ['create,activate', '새로 반영'], ['promote', '격상'], ['off,delete', '해제'], ['candidate', '후보'], ['reject', '거절'], ['edit', '수정'], ['settings,supplier,import', '설정']];
+  $('#page').innerHTML = `<div class="card"><div class="card-h"><div><h2>이력</h2><p class="desc" style="margin:0">규칙을 누가, 언제, 왜 바꿨는지 남깁니다.</p></div></div>
+    <div class="chips" style="margin-bottom:10px">${F.map(([v, t]) => `<button class="chip ${HFILTER === v ? 'on' : ''}" data-f="${v}" type="button">${t}</button>`).join('')}</div>
+    ${HV.rows.length ? `<div class="tl">${HV.rows.map(histItem).join('')}</div>` : '<div class="empty"><b>기록이 없습니다</b></div>'}</div>`;
+  document.querySelectorAll('[data-f]').forEach(b => b.onclick = () => { HFILTER = b.dataset.f; loadHistory().catch(fail); });
+}
+
+// ───────── 설정
+async function loadSettings(refresh) {
+  SV = await api('api/admin/settings' + (refresh ? '?refresh=1' : '')); const c = SV.claude;
+  const state = !c.found ? ['bad', 'Claude CLI를 찾지 못했습니다'] : !c.loggedIn ? ['warn', '로그인이 필요합니다'] : ['ok', '연결됨'];
+  const cmd = t => `<div class="cmd"><span>${esc(t)}</span><button class="btn sm ghost" type="button" data-copy="${esc(t)}">복사</button></div>`;
+  $('#page').innerHTML = `<div class="grid2">
+    <div class="card"><h2>Claude 계정 <span class="bd ${state[0]}">${state[1]}</span></h2><p class="desc">판독은 이 PC(또는 서버)에서 로그인한 Claude 계정으로 돕니다. 각자 자기 계정으로 쓰려면 아래 순서를 따릅니다.</p>
+      <dl class="kv"><dt>계정</dt><dd>${esc(c.email || (c.loggedIn ? '이메일을 읽지 못함' : '없음'))}${c.org ? ` <span class="muted">(${esc(c.org)})</span>` : ''}</dd>
+        <dt>로그인 방식</dt><dd>${esc(c.authMethod || '없음')}</dd><dt>계정 폴더</dt><dd class="mono">${esc(c.configDirShown)}</dd>
+        <dt>CLI</dt><dd class="mono">${esc(c.bin)} ${c.version ? `<span class="muted">${esc(c.version)}</span>` : ''}</dd>${c.error ? `<dt>오류</dt><dd class="small" style="color:var(--bad)">${esc(c.error)}</dd>` : ''}</dl>
+      <div class="row" style="margin-top:12px"><button class="btn sm" id="cRefresh" type="button">연결 다시 확인</button><button class="btn sm" id="cTest" type="button">시험 질문 보내기</button><span class="small muted" id="cTestOut"></span></div>
+      <div style="margin-top:14px"><div class="small" style="font-weight:700">자기 계정으로 쓰기</div><ol class="howto">
+        <li>Claude Code를 설치합니다. Windows는 PowerShell에서, 맥과 리눅스는 터미널에서 실행합니다.${cmd('irm https://claude.ai/install.ps1 | iex')}${cmd('curl -fsSL https://claude.ai/install.sh | bash')}</li>
+        <li>터미널에서 <code>claude</code>를 실행하고 자기 계정으로 로그인합니다. 로그인되면 끝냅니다.${cmd('claude')}</li>
+        <li>이 화면의 「연결 다시 확인」을 누릅니다. 계정에 자기 이메일이 보이면 됩니다.</li>
+        <li>한 PC에서 여러 계정을 나눠 쓰려면 계정 폴더를 따로 두고 그 폴더로 로그인한 뒤, 아래 「계정 폴더」에 그 경로를 넣습니다. 위가 Windows(PowerShell), 아래가 맥과 리눅스입니다.${cmd('$env:CLAUDE_CONFIG_DIR="$HOME\\.claude-wuxi"; claude')}${cmd('CLAUDE_CONFIG_DIR=~/.claude-wuxi claude')}</li></ol></div>
+      <div class="form" style="margin-top:12px"><div class="row"><label class="f" style="flex:2">계정 폴더(비우면 기본 계정)<input class="in mono" id="sDir" value="${esc(SV.configDir)}" placeholder="예: C:\\Users\\me\\.claude-wuxi"></label>
+        <button class="btn" id="sDirSave" type="button" style="align-self:flex-end">저장</button></div></div></div>
+    <div>
+      <div class="card"><h2>판독 모델</h2><p class="desc">바꾸면 다음 판독부터 씁니다. 바꾼 뒤에는 설치 점검(selfcheck)으로 먼저 확인합니다.</p>
+        <div class="form">${SV.models.map(m => `<label class="row" style="gap:8px;align-items:flex-start"><input type="radio" name="model" value="${m.id}" ${m.id === SV.model ? 'checked' : ''} style="margin-top:4px">
+          <span><b>${esc(m.name)}</b> <span class="mono small muted">${m.id}</span><br><span class="small muted">${esc(m.note)}</span></span></label>`).join('')}
+          ${SV.models.some(m => m.id === SV.model) ? '' : `<p class="small">지금 값: <span class="mono">${esc(SV.model)}</span></p>`}</div></div>
+      <div class="card"><h2>보관 기간</h2><p class="desc">올린 서류와 결과를 이 기간이 지나면 지웁니다. 확정한 정답 자료도 같이 지워집니다.</p>
+        <div class="row"><input class="in" id="sKeep" type="number" min="1" max="365" value="${SV.keepDays}" style="width:90px"><span>일</span><button class="btn sm" id="sKeepSave" type="button">저장</button></div></div>
+      <div class="card"><h2>비밀번호</h2><p class="desc">8자 이상입니다. 바꾸면 그 화면에 들어와 있던 사람은 다시 들어와야 합니다.</p>
+        <div class="form"><div class="row"><label class="f">고객 화면 ${SV.passwords.user ? '' : '<span class="bd warn">없음</span>'}<input class="in" id="pUser" type="password" autocomplete="new-password"></label><button class="btn sm" data-pw="user" type="button" style="align-self:flex-end">바꾸기</button></div>
+          <div class="row"><label class="f">운영 화면<input class="in" id="pAdmin" type="password" autocomplete="new-password"></label><button class="btn sm" data-pw="admin" type="button" style="align-self:flex-end">바꾸기</button></div></div></div>
+      <div class="card"><h2>규칙 옮기기</h2><p class="desc">다른 서버나 PC로 규칙을 옮길 때 씁니다. 저장소에 기본값으로 넣으려면 명령줄에서 <code>python tools/wuxi_rules.py export --to-default</code>를 실행합니다.</p>
+        <div class="row"><a class="btn sm" href="${ROOT}api/admin/export">내보내기</a><label class="btn sm">가져오기<input type="file" id="imp" accept="application/json,.json" hidden></label></div></div>
+    </div></div>
+    <p class="tiny muted" style="margin-top:14px">판 ${esc(SV.version || '알 수 없음')} | 작업 폴더 <span class="mono">${esc(SV.paths.work)}</span></p>`;
+  document.querySelectorAll('[data-copy]').forEach(b => b.onclick = async () => { try { await navigator.clipboard.writeText(b.dataset.copy); toast('복사했습니다.'); } catch (e) { toast('복사하지 못했습니다. 글을 직접 고르십시오.', true); } });
+  $('#cRefresh').onclick = () => loadSettings(true).catch(fail);
+  $('#cTest').onclick = async () => { $('#cTestOut').textContent = '보내는 중입니다.'; try { const r = await post('api/admin/claude-test');
+    $('#cTestOut').textContent = r.ok ? `답을 받았습니다(${r.seconds}초).` : `실패했습니다: ${r.error}`; } catch (e) { fail(e); $('#cTestOut').textContent = ''; } };
+  const save = async (b, msg) => { try { await post('api/admin/settings', b); toast(msg); loadSettings(true).catch(fail); } catch (e) { fail(e); } };
+  $('#sDirSave').onclick = () => save({configDir: $('#sDir').value}, '계정 폴더를 저장했습니다.');
+  document.querySelectorAll('input[name="model"]').forEach(r => r.onchange = () => save({model: r.value}, '판독 모델을 바꿨습니다.'));
+  $('#sKeepSave').onclick = () => save({keepDays: $('#sKeep').value}, '보관 기간을 저장했습니다.');
+  document.querySelectorAll('[data-pw]').forEach(b => b.onclick = async () => {
+    const who = b.dataset.pw, el = who === 'user' ? $('#pUser') : $('#pAdmin');
+    try { await post('api/admin/password', {who, password: el.value}); el.value = ''; toast('비밀번호를 바꿨습니다.'); } catch (e) { fail(e); }
+  });
+  $('#imp').onchange = async e => {
+    const f = e.target.files[0]; if (!f) return; let data; try { data = JSON.parse(await f.text()); } catch (er) { toast('JSON 파일이 아닙니다.', true); return; }
+    const reason = await reasonModal('규칙을 가져옵니다', `「${f.name}」의 규칙 ${(data.rules || []).length}개를 합칩니다. id가 같으면 가져온 쪽이 이깁니다.`, '가져오기'); if (reason == null) return;
+    try { const r = await post('api/admin/import', {data, reason}); toast(`규칙 ${r.rules}개를 가져왔습니다.`); RV = null; } catch (er) { fail(er); }
+  };
+}
+boot();
+</script>
+</body>
+</html>

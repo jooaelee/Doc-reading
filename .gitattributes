@@ -1,0 +1,6 @@
+# 사내 Git 으로 옮길 때(git archive) GitHub 전용 설정은 빼고 보낸다
+.github export-ignore
+
+# 실행 파일의 줄 끝을 운영체제에 맞춰 고정한다. bat 이 LF 면 cmd 가 줄을 잘못 읽는다
+*.sh text eol=lf
+*.bat text eol=crlf
