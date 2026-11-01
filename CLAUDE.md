@@ -14,6 +14,8 @@
 | `tools/wuxi_admin.py` | 운영 화면 API(현황, 규칙, 학습, 이력, 설정, Claude 계정 상태) |
 | `tools/gerp_xlsx.py` | G-ERP 엑셀과 열 매핑 |
 | `web/index.html`, `web/admin.html`, `web/static/wuxi.css` | 고객 화면, 운영 화면, 공통 디자인 |
+| `docs/handover/` | 인수인계서 원본(`handover.html`), 화면 캡처(`img/`), PDF 와 만드는 스크립트(`build.cjs`). 화면이나 운영 방식이 바뀌면 같이 고칩니다 |
+| `docs/진행-상황.md` | 지금 끝난 것과 남은 것. 일을 마치면 고칩니다 |
 
 ## 지킬 것
 

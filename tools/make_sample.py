@@ -45,8 +45,13 @@ def build_lines(n_lines, n_inv, seed=7):
             else:
                 desc = f"{rnd.choice(WORDS)} {rnd.choice(SPEC)}"
                 if rnd.random() < .25:
-                    desc += f" P/N {rnd.randint(100, 999)}-{rnd.randint(1000, 9999)} WITH BRACKET"
-                desc = desc[:52].rstrip()             # 인보이스 품명 칸 폭. 정답도 찍힌 글자와 같게 둔다
+                    tail = f" P/N {rnd.randint(100, 999)}-{rnd.randint(1000, 9999)}"
+                    # 인보이스 품명 칸 폭(52자)을 넘으면 붙이지 않는다. 잘린 품명은 AI 가 다른 줄을 보고
+                    # 끝을 채워 읽어(「…WITH」를 「…WITH BRACKET」으로) 읽기 시험이 아니라 자르기 시험이 된다
+                    for t in (tail + " WITH BRACKET", tail):
+                        if len(desc + t) <= 52:
+                            desc += t
+                            break
                 sap = f"F{rnd.randint(100, 999):03d}{rnd.choice('ABCDEF')}{serial:04d}"
             qty = rnd.choice([1, 2, 4, 6, 10, 25, 40, 100, 500])
             price = round(rnd.uniform(1.5, 4800), 2)
