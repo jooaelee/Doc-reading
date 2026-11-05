@@ -58,7 +58,8 @@ CODE_COLS = [("Sap Code", "sap_code"), ("Po Item No.", "po_item_no"),
              ("SK Hynix I/V No.", "iv_no"), ("HIOS No.", "hios_no"),
              ("Material Code", "material_code"), ("Serial No.", "serial_no"),
              ("Part No.", "part_no")]
-EXTRA_ITEM_COLS = (["케이스", "Invoice No.", "출처", "줄", "품명", "단위"]
+# 파일명: 이 줄을 읽은 PDF. 앱 밖에서 원본과 대조하려고 둔다(wuxi_engine.payload 가 채운다)
+EXTRA_ITEM_COLS = (["케이스", "파일명", "Invoice No.", "출처", "줄", "품명", "단위"]
                    + [c for c, _ in CODE_COLS]
                    + ["Case No.", "순중량(kg)", "총중량(kg)", "HS", "원산지"])
 ITEM_COLS = GERP_ITEM_COLS + EXTRA_ITEM_COLS
@@ -135,6 +136,7 @@ ORIGIN = [
     ("BL Item", "B/L quantity", "서류", "인보이스 행의 수량"),
     ("BL Item", "Invoice amount", "서류", "인보이스 행의 금액"),
     ("BL Item", "Net Price", "서류", "인보이스 행의 단가"),
+    ("BL Item", "파일명", "앱", "이 행을 읽은 PDF 파일 이름. 파일이 여럿이면 원본에서 이 행이 찍힌 파일, 찾지 못하면 묶음의 파일 전부"),
     ("BL Header", "Incoterms", "서류", "인보이스의 인코텀즈"),
     ("BL Header", "Master B/L No.", "서류", "운송장의 마스터 번호"),
     ("BL Header", "House B/L No.", "서류", "운송장의 하우스 번호"),

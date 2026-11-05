@@ -256,8 +256,29 @@ def _find_rects(docs, text):
     return hits
 
 
-def payload(name, pdfs, res) -> dict:
-    """화면에 줄 값. 줄마다 원본에서 찾을 자리(_hl)를 붙인다."""
+def _row_file(hl, files, page_kind) -> str:
+    """이 줄을 읽은 파일 이름(「파일명」 열). 앱 밖에서 원본과 대조하는 데 쓴다.
+
+    파일이 하나면 그 파일이다. 여럿이면 원본에서 이 줄의 코드나 PO 가 찍힌 자리(_hl)로 고르되
+    인보이스 쪽을 먼저 본다(포장명세서와 통관표에도 같은 코드가 찍히기 때문). 하나로 못 좁히면
+    찾은 파일을, 아무 데서도 못 찾으면(글자층 없는 스캔 등) 묶음의 파일 전부를 적는다.
+    """
+    if len(files) <= 1:
+        return files[0] if files else ""
+    hit = [h[0] for h in hl if 0 <= h[0] < len(files)]
+    ci = [h[0] for h in hl if 0 <= h[0] < len(files) and page_kind.get((h[0], h[1])) == "CI"]
+    for cand in (ci, hit):
+        if len(set(cand)) == 1:
+            return files[cand[0]]
+    picked = sorted(set(ci or hit))
+    return ", ".join(files[i] for i in picked) if picked else ", ".join(files)
+
+
+def payload(name, pdfs, res, files=None) -> dict:
+    """화면에 줄 값. 줄마다 원본에서 찾을 자리(_hl)와 읽은 파일 이름(파일명)을 붙인다.
+
+    files 는 사람이 올린 원래 파일 이름(pdfs 와 같은 차례). 없으면 저장된 파일 이름을 쓴다.
+    """
     import pymupdf
     rec = {"case": name, "ex": res["ex"], "verify": res["verify"]}
     t = gerp_xlsx.tables_for([rec])
@@ -268,6 +289,10 @@ def payload(name, pdfs, res) -> dict:
         except Exception:
             docs.append(None)
     sizes = [[[round(pg.rect.width), round(pg.rect.height)] for pg in d] if d else [] for d in docs]
+    if not files or len(files) != len(pdfs):
+        files = [os.path.basename(p) for p in pdfs]
+    stored = {os.path.basename(p): i for i, p in enumerate(pdfs)}
+    page_kind = {(stored.get(pg.get("file")), pg.get("no")): pg.get("kind") for pg in res.get("pages") or []}
     for row in t["items"]:
         marks = []
         for col in ("Material", "Vendor Part No.", "Purchase Order", "Invoice amount"):
@@ -275,6 +300,7 @@ def payload(name, pdfs, res) -> dict:
             if marks:
                 break
         row["_hl"] = marks[:4]
+        row["파일명"] = _row_file(row["_hl"], files, page_kind)
     for d in docs:
         if d:
             d.close()

@@ -338,7 +338,7 @@ def run(job: dict, store: Store) -> None:
     store.save(job)
     try:
         res = wuxi_engine.read_bundle(job["pdfs"], name=job.get("title") or "올린 서류", on_step=on_step)
-        job["payload"] = wuxi_engine.payload(job.get("title") or "올린 서류", job["pdfs"], res)
+        job["payload"] = wuxi_engine.payload(job.get("title") or "올린 서류", job["pdfs"], res, files=_files(job))
         job.update(status="done", wall=round(time.time() - job["started"], 1), supplier=res.get("supplier"),
                    supplier_name=res.get("supplier_name"), edits=None, review=None, confirmed=None)
         try:
@@ -365,6 +365,10 @@ def _summary(job: dict) -> dict:
 
 
 def _files(job: dict) -> list[str]:
+    """올린 사람이 고른 파일 이름. 저장 이름(00_xxx.pdf)은 특수 문자를 바꿔 두므로 원래 이름을 따로 둔다."""
+    orig = job.get("orig_names")
+    if isinstance(orig, list) and len(orig) == len(job.get("names") or []):
+        return [str(x) for x in orig]
     return [re.sub(r"^\d\d_", "", n) for n in job.get("names") or []]
 
 
@@ -493,7 +497,7 @@ async def create_job(request: Request, pdf: list[UploadFile]) -> JSONResponse:
     jid = uuid.uuid4().hex
     d = STORE.dir(jid)
     d.mkdir(parents=True, exist_ok=True)
-    names = []
+    names, orig_names = [], []
     for i, f in enumerate(files):
         data = await f.read(MAX_MB * 1024 * 1024 + 1)
         base = Path(f.filename or "").name
@@ -509,7 +513,9 @@ async def create_job(request: Request, pdf: list[UploadFile]) -> JSONResponse:
         name = f"{i:02d}_{safe}"
         (d / name).write_bytes(data)
         names.append(name)
-    job = {"id": jid, "status": "queued", "created": time.time(), "names": names, "pdfs": [str(d / n) for n in names],
+        orig_names.append(base[:200] or safe)
+    job = {"id": jid, "status": "queued", "created": time.time(), "names": names, "orig_names": orig_names,
+           "pdfs": [str(d / n) for n in names],
            "steps": [], "payload": None, "error": None}
     STORE.submit(job)
     log_access(request, "upload", jid, note=f"{len(names)} files")
@@ -597,8 +603,11 @@ async def xlsx(jid: str, request: Request) -> Response:
                 STORE.save(job)
         except Exception as e:     # 학습 기록이 실패해도 엑셀은 낸다
             log_access(request, "learn-error", jid, 500, str(e))
+    # 사람이 더한 줄에는 파일명이 비어 있다. 파일이 하나뿐인 묶음이면 그 파일로 채운다(화면에서는 못 고치는 열)
+    one = _files(job)
+    items = [({**x, "파일명": one[0]} if len(one) == 1 and not str(x.get("파일명") or "").strip() else x) for x in items]
     t = {"head": [body.get("head") if isinstance(body.get("head"), dict) else p["head"]],
-         "items": [x for x in items[:5000] if isinstance(x, dict)],
+         "items": items,
          "inv": body.get("inv") if isinstance(body.get("inv"), list) else p["inv"],
          "review": [p["review"]]}
     import gerp_xlsx
