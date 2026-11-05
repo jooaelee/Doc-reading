@@ -334,7 +334,7 @@ def run(job: dict, store: Store) -> None:
         job["steps"].append({"text": text, "done": bool(done), "sec": round(sec, 1) if sec else None})
         store.save(job)
 
-    job.update(status="running", started=time.time(), steps=[], error=None, payload=None)
+    job.update(status="running", started=time.time(), steps=[], error=None, traceback=None, payload=None)
     store.save(job)
     try:
         res = wuxi_engine.read_bundle(job["pdfs"], name=job.get("title") or "올린 서류", on_step=on_step)
@@ -346,7 +346,12 @@ def run(job: dict, store: Store) -> None:
         except Exception:      # 적용 건수를 못 올려도 결과는 낸다
             pass
     except Exception as e:
-        job.update(status="error", error=wuxi_engine.friendly_error(str(e)), wall=round(time.time() - job["started"], 1))
+        # 화면에는 짧은 문장만 보인다. 어디서 났는지는 job.json 의 traceback 과 서버 창에 남긴다
+        import traceback
+        tb = traceback.format_exc()
+        sys.stderr.write(f"작업 {job.get('id')} 판독 오류\n{tb}")
+        job.update(status="error", error=wuxi_engine.friendly_error(str(e)), traceback=tb[-4000:],
+                   wall=round(time.time() - job["started"], 1))
     store.save(job)
 
 

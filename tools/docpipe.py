@@ -2547,6 +2547,33 @@ def hynix_merge_cn(ex):
     return ex
 
 
+def _dims_rows(dims):
+    """치수를 [[L, W, H, n], ...] 숫자 꼴로 맞춘다.
+
+    스키마는 {l, w, h, n} 꼴을 정하지만 도구가 답을 검사하지 않고, 도구를 못 불러 글로 답한
+    경로도 있다. 그래서 ["120", "80", "100", "2"] 나 "120x80x100" 이 그대로 들어와 검증의
+    L×W×H 곱에서 판독 전체가 「can't multiply sequence」로 죽었다(Windows 실사용 11/5).
+    꼴이 어떻든 숫자로 바꾸고, 길이를 못 읽은 줄은 뺀다. n 이 없으면 1 이다.
+    """
+    out = []
+    for d in dims:
+        if isinstance(d, dict):
+            vals = [d.get("l"), d.get("w"), d.get("h"), d.get("n")]
+        elif isinstance(d, (list, tuple)):
+            vals = list(d[:4])
+        elif isinstance(d, str):
+            vals = re.findall(r"\d[\d,]*(?:\.\d+)?", d)[:4]
+        else:
+            continue
+        vals = [(v if isinstance(v, (int, float)) and not isinstance(v, bool) else _to_num(v) if v is not None else None)
+                for v in vals] + [None] * (4 - len(vals))
+        l, w, h, n = vals
+        if not l:
+            continue
+        out.append([l, w or 0, h or 0, n or 1])
+    return out
+
+
 def _line_str_keys(list_key):
     """이 배열의 줄 항목에서 스키마가 글자라고 적은 칸 이름."""
     it = ((SCHEMA.get("properties") or {}).get(list_key) or {}).get("items") or {}
@@ -2637,8 +2664,8 @@ def postprocess(ex, customer=None):
         ex["po_list"] = [x for x in ex["po_list"] if re.search(r"\d", str(x or ""))]
     for k in ("ci_lines", "pl_lines", "lca_lines"):
         if ex.get(k): ex[k] = [ln for ln in ex[k] if any(isinstance(x, (int, float)) and x for x in ln.values())]
-    if ex.get("dims_cm") and isinstance(ex["dims_cm"][0], dict):
-        ex["dims_cm"] = [[d.get("l") or 0, d.get("w") or 0, d.get("h") or 0, d.get("n") or 1] for d in ex["dims_cm"] if d.get("l")]
+    if isinstance(ex.get("dims_cm"), list):
+        ex["dims_cm"] = _dims_rows(ex["dims_cm"])
     # 수리 인보이스는 같은 줄이 두 표(원래 값, 수리 값)에 찍힌다. 모델이 둘 다 담으면 총액에 맞는 쪽만 남긴다.
     lines, tot = ex.get("ci_lines") or [], num(ex.get("ci_total"))
     if tot and len(lines) >= 2 and len(lines) % 2 == 0:
