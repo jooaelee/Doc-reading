@@ -1905,14 +1905,82 @@ def call_split(model, pages, paths, how, caller="cli"):
     return raw, stat
 
 
+_COPY_ID_KEYS = {"invoice_no", "po_no", "po_item_no", "sap_code", "material_code", "case_no", "hs_code"}
+
+
+def _row_sig(x):
+    """줄 하나에서 사본 비교에 쓰는 칸만 남긴다. 숫자 칸(수량, 단가, 금액, 중량)과 번호 칸이다.
+
+    품명, 모델, 원산지, 단위 같은 글자 칸은 스캔 사본마다 OCR 이 다르게 읽는다. 차례(seq)는 사본에
+    따라 있다 없다 하고 뜻이 없다(실제 서류 11/6).
+    """
+    sig = {}
+    for k, val in x.items():
+        if val in (None, "") or isinstance(val, bool) or k == "seq":
+            continue
+        n = num(val)
+        if n is None and isinstance(val, str):
+            # "0.24KG", "1.0 kg" 처럼 단위가 붙은 숫자도 숫자다
+            m = re.match(r"^\s*(-?\d[\d,]*(?:\.\d+)?)\s*[A-Za-z%]{0,4}\s*$", val)
+            if m:
+                n = num(m.group(1))
+        if n is not None:
+            sig[k] = n
+        elif k in _COPY_ID_KEYS:
+            # OCR 이 붙임표를 다른 글자(‐, –)로 읽거나 띄어쓰기를 넣어도 같은 번호다
+            sig[k] = re.sub(r"[‐-―−-]+", "-", str(val)).replace(" ", "").upper()
+    return sig
+
+
+def _same_lines(a, b):
+    """두 줄 목록이 같은 서류의 사본인가.
+
+    줄 수가 같고, 줄마다 둘 다 가진 숫자 칸과 번호 칸이 모두 같아야 한다. 한쪽에만 있는 칸(한 사본만
+    case_no 나 part_no 를 읽은 경우)은 견주지 않는다. 견준 칸이 목록 전체로 둘이 안 되면 근거가
+    모자라므로 다른 목록으로 본다.
+    """
+    if not a or len(a) != len(b):
+        return False
+    compared = 0
+    for x, y in zip(a, b):
+        if isinstance(x, dict) != isinstance(y, dict):
+            return False
+        if not isinstance(x, dict):
+            if str(x) != str(y):
+                return False
+            compared += 1
+            continue
+        sx, sy = _row_sig(x), _row_sig(y)
+        shared = [k for k in sx if k in sy]
+        if not shared or any(sx[k] != sy[k] for k in shared):
+            return False
+        compared += len(shared)
+    return compared >= 2
+
+
+def _cat_unique(cur, v, seen):
+    """배열을 잇되, 이미 이은 목록과 같은 사본인 목록은 다시 잇지 않는다. seen 은 이은 목록들이다.
+
+    🔴 스캔 묶음에는 같은 인보이스 사본이 서너 부 들어온다(HB, OH, LCA 사본). 사본마다 줄을 읽어
+       그대로 이으면 3줄이 9줄이 되고 금액 합이 총액의 3배가 되어 「빠진 줄 의심」이 뜬다
+       (실제 서류 46건 점검 11/6, 스캔 묶음 11건이 모두 이것). 긴 표를 쪽마다 나눠 부른 조각은
+       줄이 서로 다르므로 그대로 이어진다.
+    """
+    if any(_same_lines(prev, v) for prev in seen):
+        return cur
+    seen.append(v)
+    return cur + v
+
+
 def _merge_chunks(raws):
-    """같은 서류의 조각들을 하나로. 배열은 잇고 나머지는 처음 나온 값이다. 총계는 더하지 않는다."""
+    """같은 서류의 조각들을 하나로. 배열은 잇고(똑같은 사본은 한 번만) 나머지는 처음 나온 값이다. 총계는 더하지 않는다."""
     out = {}
+    seen = {}
     for r in raws:
         for k, v in (r or {}).items():
             if v in (None, "", []): continue
             if k in CAT_KEYS and isinstance(v, list):
-                out[k] = (out.get(k) or []) + v
+                out[k] = _cat_unique(out.get(k) or [], v, seen.setdefault(k, []))
             elif out.get(k) in (None, "", []):
                 out[k] = v
     return out
@@ -1957,7 +2025,12 @@ def merge_parts(parts):
             vals = [r.get(k) for r in raws if r.get(k) not in (None, "", [])]
             if not vals: continue
             if k in CAT_KEYS:
-                v = [x for vv in vals for x in (vv if isinstance(vv, list) else [])]
+                # 같은 종류의 서류가 여럿이면 줄을 잇는다. 번호가 없어 같은 서류로 못 묶인 사본(통관표 두 부)은
+                # 줄 목록이 똑같으므로 한 번만 잇는다.
+                v, seen = [], []
+                for vv in vals:
+                    if isinstance(vv, list):
+                        v = _cat_unique(v, vv, seen)
             elif k in SUM_KEYS and len(raws) > 1:
                 nums = [num(x) for x in vals]
                 v = round(sum(n for n in nums if n is not None), 3) if any(n is not None for n in nums) else vals[0]
@@ -2638,7 +2711,17 @@ def postprocess(ex, customer=None):
     for k in ("ci_lines", "pl_lines", "lca_lines"):
         if ex.get(k): ex[k] = [ln for ln in ex[k] if any(isinstance(x, (int, float)) and x for x in ln.values())]
     if ex.get("dims_cm") and isinstance(ex["dims_cm"][0], dict):
-        ex["dims_cm"] = [[d.get("l") or 0, d.get("w") or 0, d.get("h") or 0, d.get("n") or 1] for d in ex["dims_cm"] if d.get("l")]
+        # 🔴 치수 칸은 숫자로만 남긴다. 모델이 "120 x 80" 이나 "N/A" 같은 글자를 l 에 넣으면 위의 숫자
+        #    바꾸기가 못 바꾸고 글자가 남았고, verify 의 곱셈이 TypeError 로 죽어 그 묶음 전체가
+        #    「오류」로 끝났다(실제 서류 점검 11/6, 스캔 3건). 숫자가 안 되는 치수는 버린다.
+        rows = []
+        for d in ex["dims_cm"]:
+            if not isinstance(d, dict):
+                continue
+            l, w, h, n = (num(d.get(k)) for k in ("l", "w", "h", "n"))
+            if l:
+                rows.append([l, w or 0, h or 0, n or 1])
+        ex["dims_cm"] = rows
     # 수리 인보이스는 같은 줄이 두 표(원래 값, 수리 값)에 찍힌다. 모델이 둘 다 담으면 총액에 맞는 쪽만 남긴다.
     lines, tot = ex.get("ci_lines") or [], num(ex.get("ci_total"))
     if tot and len(lines) >= 2 and len(lines) % 2 == 0:
@@ -2791,6 +2874,19 @@ def num(x):
 def close(a, b, tol=0.011):
     return a is not None and b is not None and abs(a - b) <= max(tol, abs(b) * 0.001)
 
+def _numeric_dims(dims):
+    """치수 목록 [[L,W,H,n], ...] 에서 네 값이 모두 숫자인 것만 돌려준다. postprocess 를 거치지 않은 값이나
+    글자가 섞인 값이 와도 verify 의 곱셈이 죽지 않게 한다."""
+    out = []
+    for d in dims or []:
+        if not isinstance(d, (list, tuple)) or len(d) != 4:
+            continue
+        l, w, h, n = (num(v) for v in d)
+        if l is None or w is None or h is None:
+            continue
+        out.append([l, w, h, n or 1])
+    return out
+
 def load_code_lists(path):
     """닫힌 코드 목록. 두 가지를 받는다.
 
@@ -2914,7 +3010,7 @@ def verify(ex: dict, pages, codes: dict):
         (ok if close(a, b) else fail)("net_weight", f"PL {a:g} vs CI {b:g}")
 
     # (e) 용적중량: Σ L×W×H/6000 vs chargeable  (chargeable = max(gross, volumetric) 반올림)
-    dims = ex.get("dims_cm") or []      # [[L,W,H,n], ...]
+    dims = _numeric_dims(ex.get("dims_cm"))      # [[L,W,H,n], ...] 숫자인 것만
     ch, gw = num(ex.get("awb_chargeable")), gws.get("awb_gross")
     if dims and ch is not None:
         vol = sum(l * w * h * n / 6000 for l, w, h, n in dims)
