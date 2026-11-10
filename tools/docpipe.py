@@ -1905,7 +1905,8 @@ def call_split(model, pages, paths, how, caller="cli"):
     return raw, stat
 
 
-_COPY_ID_KEYS = {"invoice_no", "po_no", "po_item_no", "sap_code", "material_code", "case_no", "hs_code"}
+_COPY_ID_KEYS = {"invoice_no", "po_no", "po_item_no", "case_no", "hs_code"}
+_CODE_PAIR = ("part_no", "material_code", "sap_code")
 
 
 def _row_sig(x):
@@ -1915,8 +1916,14 @@ def _row_sig(x):
     따라 있다 없다 하고 뜻이 없다(실제 서류 11/6).
     """
     sig = {}
+    # 🔴 Part No, Material Code, SAP 코드는 사본마다 칸이 서로 바뀌어 읽힌다(PNS26025031 은 앞의 둘이 맞바뀌고,
+    # PNS26071952 는 SAP 코드가 Material Code 칸에 들어감, 11/10). 그래서 칸 이름을 떼고 코드를 한 묶음으로
+    # 견준다. 숫자로만 된 코드도 숫자 칸으로 보내지 않는다.
+    codes = frozenset(_norm_code(x.get(k)) for k in _CODE_PAIR if x.get(k) not in (None, ""))
+    if codes:
+        sig["_codes"] = codes
     for k, val in x.items():
-        if val in (None, "") or isinstance(val, bool) or k == "seq":
+        if val in (None, "") or isinstance(val, bool) or k == "seq" or k in _CODE_PAIR:
             continue
         n = num(val)
         if n is None and isinstance(val, str):
@@ -1927,9 +1934,21 @@ def _row_sig(x):
         if n is not None:
             sig[k] = n
         elif k in _COPY_ID_KEYS:
-            # OCR 이 붙임표를 다른 글자(‐, –)로 읽거나 띄어쓰기를 넣어도 같은 번호다
-            sig[k] = re.sub(r"[‐-―−-]+", "-", str(val)).replace(" ", "").upper()
+            sig[k] = _norm_code(val)
     return sig
+
+
+def _norm_code(val):
+    """OCR 이 붙임표를 다른 글자(‐, –)로 읽거나 띄어쓰기를 넣어도 같은 번호다."""
+    return re.sub(r"[‐-―−-]+", "-", str(val)).replace(" ", "").upper()
+
+
+def _sig_eq(k, a, b):
+    if k == "_codes":
+        # 한 사본은 Part No 를 OCR 이 틀리게 읽기도 해서(11/6), 두 코드 중 하나라도 겹치면 같다고 본다.
+        # 견줄 숫자 칸이 줄마다 함께 맞아야 하므로 코드 하나만으로 사본이 되지는 않는다
+        return bool(a & b)
+    return a == b
 
 
 def _same_lines(a, b):
@@ -1942,6 +1961,7 @@ def _same_lines(a, b):
     if not a or len(a) != len(b):
         return False
     compared = 0
+    code_typo = 0
     for x, y in zip(a, b):
         if isinstance(x, dict) != isinstance(y, dict):
             return False
@@ -1952,7 +1972,14 @@ def _same_lines(a, b):
             continue
         sx, sy = _row_sig(x), _row_sig(y)
         shared = [k for k in sx if k in sy]
-        if not shared or any(sx[k] != sy[k] for k in shared):
+        bad = [k for k in shared if not _sig_eq(k, sx[k], sy[k])]
+        if bad == ["_codes"] and len(shared) >= 3 and len(a) >= 3:
+            # 한 사본이 코드 한 글자를 잘못 읽은 줄(5105-200527 과 5105-300527, PNS26071952, 11/10).
+            # 숫자 칸이 다 맞으면 목록 전체에서 한 줄까지만 봐준다. 두 줄 넘게 다르면 다른 서류다
+            code_typo += 1
+            if code_typo > 1:
+                return False
+        elif not shared or bad:
             return False
         compared += len(shared)
     return compared >= 2
