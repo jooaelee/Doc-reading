@@ -10,9 +10,14 @@
 | `tools/wuxi_engine.py` | 화면과 점검 도구가 부르는 입구. 공급사 알아보기, 규칙 적용, 빠짐 검사, 화면에 줄 값 |
 | `tools/wuxi_rules.py` | 규칙 저장소(기본값, 운영 값, 이력, 단계, 엔진이 쓰는 자리) |
 | `tools/wuxi_learn.py` | 사람이 고친 값으로 규칙 후보 만들기, 미리보기, 격상 제안 |
+| `tools/accuracy.py` | 확정한 정답과 판독을 견줘 칸별, 공급사별, 건별 정확도와 남는 줄, 빠진 줄을 잼. 기준선을 남기고 견줌 |
+| `tools/rule_sim.py` | 후보를 반영하거나 공통으로 격상하기 전에 확정한 정답에 미리 적용해 Main 칸 정확도 전과 후, 바로잡는 칸, 틀어지는 칸을 잼(운영 화면 학습 탭). AI 를 부르지 않음 |
+| `tools/learn_replay.py` | 후보 만드는 기준이 바뀐 뒤 확정한 정답으로 후보를 새로 만들기 |
 | `tools/wuxi_web.py` | 고객 화면 서버(FastAPI), 비밀번호, 작업 줄, `start` 명령 |
 | `tools/wuxi_admin.py` | 운영 화면 API(현황, 규칙, 학습, 이력, 설정, Claude 계정 상태) |
-| `tools/gerp_xlsx.py` | G-ERP 엑셀과 열 매핑 |
+| `tools/gerp_xlsx.py` | G-ERP 엑셀과 열 매핑, Main 과 Sub 항목 정의(`ITEM_SPEC`), 하이닉스 자재 번호 고르기 |
+| `tools/cell_check.py` | 품목 줄 칸마다 원본 PDF 글자층과 맞춰 보기(대조 모드의 표시). AI 를 부르지 않음 |
+| `tools/bulk_jobs.py` | 건별 폴더를 고객 화면 작업 목록에 대기 작업으로 한꺼번에 넣기(정답 확정용) |
 | `web/index.html`, `web/admin.html`, `web/static/wuxi.css` | 고객 화면, 운영 화면, 공통 디자인 |
 | `docs/handover/` | 인수인계서 원본(`handover.html`), 화면 캡처(`img/`), PDF 와 만드는 스크립트(`build.cjs`). 화면이나 운영 방식이 바뀌면 같이 고칩니다 |
 | `docs/진행-상황.md` | 지금 끝난 것과 남은 것. 일을 마치면 고칩니다 |

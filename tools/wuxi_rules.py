@@ -410,6 +410,35 @@ def upsert_candidate(kind, scope, data, evidence: dict, by="학습") -> dict | N
     return add(kind, scope, data, status="candidate", source="learned", by=by, evidence=[evidence])
 
 
+def drop_job_evidence(job: str, kinds, by="학습", again=()) -> list:
+    """후보에서 그 작업이 남긴 근거를 걷어 낸다. 근거가 하나도 남지 않은 후보는 지운다. 반영한 규칙은 건드리지 않는다.
+
+    again 은 이번에 다시 나올 후보의 (종류, 공급사, key_of). 그 후보는 근거만 걷고 지우지 않는다(곧 다시 근거가 붙음).
+    """
+    gone = []
+    again = set(again)
+    with _lock:
+        st = _load_raw()
+        hit = False
+        for rid, r in st["rules"].items():
+            if r.get("status") != "candidate" or r.get("kind") not in kinds:
+                continue
+            ev = r.get("evidence") or []
+            keep = [e for e in ev if e.get("job") != job]
+            if len(keep) == len(ev):
+                continue
+            hit = True
+            r = st["rules"][rid] = dict(r, evidence=keep)
+            if not keep and (r["kind"], r["scope"], key_of(r["kind"], r["data"])) not in again:
+                r.update(status="deleted", updated=time.time())
+                gone.append(copy.deepcopy(r))
+        if hit:
+            _save(st)
+    for r in gone:
+        _history("delete", r, by, "다시 확정한 값에 이 수정이 없어 근거가 없어진 후보")
+    return [r["id"] for r in gone]
+
+
 def change(rid: str, action: str, by="", reason="", data=None) -> dict:
     """반영, 해제, 거절, 격상, 수정, 삭제. 바뀐 규칙을 돌려준다."""
     with _lock:
@@ -509,6 +538,21 @@ def _empty(v) -> bool:
     return v is None or str(v).strip() == ""
 
 
+# 코드 사전이 Material 칸을 채울 때 쓰는 자(gerp_xlsx.hynix_material 과 같은 모양). gerp_xlsx 는 무거워 여기서 부르지 않는다
+MAT_FIELDS = ("sap_code", "material_code")
+PART_FIELDS = ("part_no", "hios_no")
+_MAT_LIKE = re.compile(r"^[A-Z][A-Z0-9]{5,11}$")       # gerp_xlsx._PLAIN_CODE. 이 모양이 아니면 Material 로 가지 않는다
+_HYNIX_IN_PART = re.compile(r"^[A-Z]\d{7}$")           # gerp_xlsx._HYNIX_STRICT. 부품 번호 칸에서 Material 로 가는 모양
+
+
+def _mat_like(v) -> bool:
+    """자재 코드 칸 값이 G-ERP Material 로 갈 수 있는 모양인가. 아니면 화면에는 빈칸이므로 「채우기」 규칙이 덮어써도 된다.
+
+    DUPONT 는 자기 11자리 번호(00011047587)를 자재 코드 칸에 읽어 Material 이 비고, 사람이 R2117286 을 넣었다(11/12).
+    """
+    return bool(_MAT_LIKE.match(re.sub(r"\s+", "", str(v if v is not None else "")).upper()))
+
+
 def apply_post(ex: dict, supplier=None) -> list:
     """판독 결과(ex)의 줄에 코드 사전과 값 바꾸기를 적용한다. 바꾼 자리를 돌려준다(줄 번호는 인보이스 줄 순서)."""
     trace = []
@@ -533,12 +577,16 @@ def apply_post(ex: dict, supplier=None) -> list:
                 continue
             done.add(f)
             before = line.get(f)
-            if d.get("mode") == "replace" or _empty(before):
-                if norm(before) != norm(d["value"]):
-                    line[f] = d["value"]
-                    line.setdefault("_rules", {})[f] = r["id"]
-                    trace.append({"rule": r["id"], "kind": "code", "line": i, "field": f,
-                                  "before": "" if before is None else str(before), "after": d["value"]})
+            if not (d.get("mode") == "replace" or _empty(before) or (f in MAT_FIELDS and not _mat_like(before))):
+                continue
+            line.setdefault("_rules", {})[f] = r["id"]    # 사람이 정한 값. G-ERP Material 은 형식을 따지지 않고 이 값을 쓴다
+            if norm(before) == norm(d["value"]):
+                continue
+            if f in PART_FIELDS and _HYNIX_IN_PART.match(norm(before)) and all(_empty(line.get(k)) for k in MAT_FIELDS):
+                line["sap_code"] = str(before).strip()    # 부품 번호 칸에 읽힌 하이닉스 번호는 Material 로 가던 값이다. 바꿔도 잃지 않게 옮긴다
+            line[f] = d["value"]
+            trace.append({"rule": r["id"], "kind": "code", "line": i, "field": f,
+                          "before": "" if before is None else str(before), "after": d["value"]})
     for src, lines in (("ci", ci), ("pl", pl)):
         for i, line in enumerate(lines):
             for f in ALIAS_FIELDS:

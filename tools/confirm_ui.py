@@ -708,11 +708,11 @@ def hynix_lines(ex, case, doc_text=""):
              # 🔴 품명을 맨 앞에 둔다. GERP 여덟 열 뒤에 뒀더니 아홉째 칸이라 가로로 밀려
             #    화면에서 안 보였고, 「품명은 인식이 안 되네」 로 읽혔다. 실제로는 99.9% 뽑힌다.
             #    GERP 여덟 열은 순서를 그대로 이어 두어 그대로 복사해 붙일 수 있다.
-            # 🔴 고객이 확정한 요구 항목 열 개를 맨 앞에 깐다(’26.09.30 임지원 PM 메일).
-            #    이름도 메일에 적힌 그대로 둔다. 우리 이름으로 바꾸면 받는 쪽이 대조를 못 한다.
+            # 🔴 11/10 부터 Main 항목(gerp_xlsx.MAIN_ITEMS) 가운데 GERP 열이 아닌 것(품명, 단위)을 앞에 깔고
             #    GERP 여덟 열은 뒤에 순서 그대로 이어 두어 그대로 복사해 붙일 수 있다.
-            "item_cols": [c for c, _ in gerp_xlsx.REQ_MAP] + gerp_xlsx.GERP_ITEM_COLS
-                         + ["Case No.", "순중량(kg)", "총중량(kg)"],
+            #    예전에는 9/30 메일의 요구 항목 열 개를 같은 값의 다른 이름으로 앞에 깔았다.
+            "item_cols": [s[2] for s in gerp_xlsx.MAIN_ITEMS if s[2] not in gerp_xlsx.GERP_ITEM_COLS]
+                         + gerp_xlsx.GERP_ITEM_COLS + ["Case No.", "순중량(kg)", "총중량(kg)"],
              "gerp_only": gerp_xlsx.GERP_ONLY, "inv_cols": gerp_xlsx.INV_COLS,
              "hl_cols": HYNIX_HL_COLS}
     return extra, lex

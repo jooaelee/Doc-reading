@@ -29,6 +29,16 @@ def put_job(web, supplier=None):
     return job
 
 
+def test_원본_보기_글꼴_표를_내준다(env):
+    """8002987246 등 SK HYNIX 충칭 인보이스는 STSong-Light 를 심지 않아 글꼴 표가 없으면 글자가 안 그려진다."""
+    web, local = env
+    assert local.get("/static/cmaps/UniGB-UTF16-H.bcmap").status_code == 200
+    assert local.get("/static/standard_fonts/FoxitSerif.pfb").status_code == 200
+    assert local.get("/static/cmaps/..").status_code == 404
+    assert local.get("/static/tools/wuxi_web.py").status_code == 404           # 두 폴더 말고는 내주지 않는다
+    assert local.get("/static/pdf.min.mjs").status_code == 200
+
+
 def test_처음_설정은_이_PC_에서만(env):
     web, local = env
     remote = TestClient(web.app)

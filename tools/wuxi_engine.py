@@ -149,6 +149,40 @@ def completeness(ex: dict, pages, policy: dict | None = None) -> dict:
     return {"verdict": verdict, "notes": notes, "lines": len(ci), "checks": checks}
 
 
+# 서류 머리의 PO. 라벨 뒤 두 줄 안에 오는 하이닉스 PO 모양(43 이나 45 로 시작하는 10자리. 정답에 적힌 PO 246칸 중 213칸)만 본다
+_PO_LABEL = re.compile(r"(?i)\b(?:p\s*/\s*o|p\.\s*o\.?|po|purchase\s+order)(?![a-z])\s*(?:no\.?|number|#)?\s*[:.]?")
+_PO_VALUE = re.compile(r"(?<![0-9A-Za-z])(4[35]\d{8})(?!\d)")
+
+
+def header_po(ex: dict, text: str) -> str | None:
+    """줄에 PO 가 하나도 없고 서류 머리에 하이닉스 PO 가 하나만 찍혀 있으면 모든 품목 줄에 그 PO 를 넣는다. 넣은 값을 돌려준다.
+
+    🔴 docpipe.hynix_fill 에 같은 생각이 있지만 우시 판독 길에서는 불리지 않았다(그 함수는 코드 지우기까지 같이 한다).
+       ENF(「9) Your PO No.」 아래 「Attn:」 줄 다음 번호), YCCHEM(「CUSTOMER P/O NO:」 다음 줄),
+       SAM YOUNG(화인 칸 「* PO NO. 4353568221」)은 PO 가 표 밖 머리에만 있어 10월 정답 12건에서 PO 칸이 모두 비었다(11/12).
+       ENF 운송장의 「* PO NO.: 150909261002」 는 인보이스 번호라 모양으로 거른다.
+    """
+    ci = [x for x in (ex.get("ci_lines") or []) if isinstance(x, dict)]
+    lines = ci + [x for x in (ex.get("pl_lines") or []) if isinstance(x, dict)]
+    # 인보이스 줄만 본다. AI 가 운송장의 「* PO NO.」(ENF 인보이스 번호)를 포장명세서 줄에 넣는 일이 있다(11/12)
+    if not lines or any(str(x.get("po_no") or "").strip() for x in (ci or lines)):
+        return None
+    found = []
+    for m in _PO_LABEL.finditer(text or ""):
+        tail = text[m.end():m.end() + 120]
+        tail = "\n".join(tail.split("\n")[:3])          # 라벨 줄과 그 아래 두 줄
+        v = _PO_VALUE.search(tail)
+        if v and v.group(1) not in found:
+            found.append(v.group(1))
+    if len(found) != 1:
+        return None
+    for x in lines:
+        if not str(x.get("po_no") or "").strip():
+            x["po_no"] = found[0]
+            x["_po_from"] = "서류 머리"
+    return found[0]
+
+
 def _pages_text(pages, n=4) -> str:
     """공급사를 알아보는 데 쓰는 앞쪽 글(글자층, 없으면 OCR 글)."""
     out = []
@@ -203,6 +237,10 @@ def read_bundle(pdfs, name="올린 서류", on_step=None, model=None, claude_bin
             ex = r.get("ex") or docpipe.postprocess(r.get("raw") or {})
             if not supplier:
                 supplier = wuxi_rules.supplier_for(text, ex)
+            all_text = _pages_text([p for p in pages if p.kind != "TERMS"], n=len(pages))
+            po = header_po(ex, all_text)
+            if po:
+                step(f"서류 머리의 PO {po} 값을 품목 줄에 넣음", True, 0)
             trace = wuxi_rules.apply_post(ex, supplier)
             if trace:
                 step(f"규칙으로 {len(trace)}칸을 채우거나 고침", True, 0)
@@ -285,6 +323,8 @@ def payload(name, pdfs, res) -> dict:
             continue
         row = t["items"][t_["line"]]
         for col in FIELD_COLS.get(t_["field"], []):
+            if col == "Material" and row.get("_mat_key") not in (None, t_["field"]):
+                continue    # Material 은 다른 칸의 코드를 골랐다(gerp_xlsx.hynix_material)
             row.setdefault("_rules", {})[col] = t_["rule"]
     req = wuxi_rules.required_columns(res.get("supplier"))
     gaps = 0

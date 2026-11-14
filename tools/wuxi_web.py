@@ -11,6 +11,7 @@ docagent(KEROL 오더, B/L)와 별개다. 코드, 자료, 열쇠를 나누지 �
 경로(앱 기준, docagent 에 붙이면 앞에 /wuxi)
   GET  /                      화면
   GET  /static/<파일>          pdf.js(저장소에 사본. 인터넷 없이 원본을 그린다)
+  GET  /static/cmaps/<파일>, /static/standard_fonts/<파일>   pdf.js 글꼴 표와 기본 글꼴(글꼴을 심지 않은 PDF)
   GET  /api/state             비밀번호를 정했는지, 들어왔는지, 한도
   POST /api/login, /api/logout
   GET  /api/jobs              최근 작업(보관 기간 안)
@@ -300,28 +301,49 @@ class Store:
         while True:
             jid = self.q.get()
             job = self.jobs.get(jid)
-            if job and job.get("status") == "queued":
+            while job and job.get("status") == "queued":
                 try:
-                    run(job, self)
+                    if run(job, self) != LIMITED:
+                        break
                 except Exception as e:      # 일꾼은 죽지 않는다
                     job.update(status="error", error=str(e)[:300])
                     self.save(job)
+                    break
+                # 🔴 AI 사용 한도에 걸리면 다음 작업을 불러도 같은 답이다. 예전에는 그대로 다음 작업으로 넘어가
+                #    줄에 남은 작업이 몇 초 만에 모두 「오류」로 끝났다(11/6, 46건 중 26건). 같은 작업을 대기로 두고
+                #    쉬었다가 다시 읽는다. 한도는 몇 시간 뒤 풀리므로 LIMIT_WAIT 마다 한 번씩 다시 해 본다
+                time.sleep(LIMIT_WAIT)
             self.q.task_done()
 
     def cleanup(self) -> None:
+        # 🔴 공유 폴더가 잠깐 끊기면 settings.json 을 못 읽어 보관 기간이 기본값 14일로 돌아간다(11/12 실제로 봄).
+        #    그 틈에 정리하면 365일로 둔 작업이 지워진다. 설정 파일이 있는데 못 읽으면 이번 정리는 건너뛴다
+        if os.path.exists(wuxi_paths.work("settings.json")) and not wuxi_paths.settings():
+            return
         cut = time.time() - keep_days() * 86400
         with self.lock:
             for jid, job in list(self.jobs.items()):
+                # 확정한 작업은 정답 세트(golden.json)라 보관 기간이 지나도 지우지 않는다
+                if job.get("confirmed") or (self.dir(jid) / "golden.json").exists():
+                    continue
                 if (job.get("created") or 0) < cut and job.get("status") not in ("queued", "running"):
                     shutil.rmtree(self.dir(jid), ignore_errors=True)
                     self.jobs.pop(jid, None)
 
 
 STORE = Store()
+LIMITED = "limited"
+LIMIT_WAIT = 15 * 60       # 한도에 걸린 뒤 다시 해 볼 때까지(초)
 
 
-def run(job: dict, store: Store) -> None:
-    """작업 하나를 읽는다. 단계는 화면이 1.5초마다 받아 간다."""
+def is_rate_limit(e: Exception) -> bool:
+    msg = str(e)
+    return type(e).__name__ == "RateLimited" or "claude CLI 한도" in msg or bool(
+        re.search(r"rate limit|usage limit|429", msg, re.I))
+
+
+def run(job: dict, store: Store) -> str | None:
+    """작업 하나를 읽는다. 단계는 화면이 1.5초마다 받아 간다. AI 사용 한도에 걸리면 작업을 대기로 되돌리고 LIMITED."""
     import wuxi_engine
 
     def on_step(text, done, sec):
@@ -339,6 +361,7 @@ def run(job: dict, store: Store) -> None:
     try:
         res = wuxi_engine.read_bundle(job["pdfs"], name=job.get("title") or "올린 서류", on_step=on_step)
         job["payload"] = wuxi_engine.payload(job.get("title") or "올린 서류", job["pdfs"], res)
+        _cell_check(job)
         job.update(status="done", wall=round(time.time() - job["started"], 1), supplier=res.get("supplier"),
                    supplier_name=res.get("supplier_name"), edits=None, review=None, confirmed=None)
         try:
@@ -346,17 +369,100 @@ def run(job: dict, store: Store) -> None:
         except Exception:      # 적용 건수를 못 올려도 결과는 낸다
             pass
     except Exception as e:
+        if is_rate_limit(e):
+            again = time.strftime("%H:%M", time.localtime(time.time() + LIMIT_WAIT))
+            job.update(status="queued", payload=None, error=None,
+                       steps=[{"text": f"AI 사용 한도에 걸려 쉬는 중입니다. {again}에 다시 읽습니다", "done": False, "sec": None}])
+            store.save(job)
+            return LIMITED
         job.update(status="error", error=wuxi_engine.friendly_error(str(e)), wall=round(time.time() - job["started"], 1))
     store.save(job)
+    return None
+
+
+def _cellcheck_version():
+    try:
+        import cell_check
+        return cell_check.VERSION
+    except Exception:
+        return None
+
+
+_CHECK_LOCK = threading.Lock()
+
+
+def _cell_check(job: dict, only_stale: bool = False) -> None:
+    """화면 값의 칸마다 원본 글자층과 맞춰 본다(tools/cell_check.py). 실패해도 작업은 그대로 연다.
+
+    🔴 한 번에 하나씩. 서버가 뜰 때 다시 대조하는 일꾼과 사람이 연 화면이 같은 작업을 동시에 대조하면 job.json 을
+       동시에 바꿔 써 「액세스가 거부되었습니다」 가 났다(11/14). only_stale 이면 차례를 기다리는 동안 이미 대조된 작업은 건너뛴다.
+    """
+    with _CHECK_LOCK:
+        if only_stale and (job.get("payload") or {}).get("cellcheck_v") == _cellcheck_version():
+            return
+        _cell_check_now(job)
+
+
+def _cell_check_now(job: dict) -> None:
+    try:
+        import pymupdf
+        import cell_check
+        docs = []
+        for p in job.get("pdfs") or []:
+            try:
+                docs.append((os.path.basename(p), pymupdf.open(p)))
+            except Exception:
+                docs.append((os.path.basename(p), None))
+        try:
+            job["payload"]["cellcheck"] = cell_check.check_items(job["payload"].get("items"), docs, job["payload"].get("pages"))
+            job["payload"]["triage"] = cell_check.triage(job["payload"].get("items"),
+                                                         (job["payload"].get("completeness") or {}).get("verdict"))
+            job["payload"]["cellcheck_v"] = cell_check.VERSION
+        finally:
+            for _, d in docs:
+                if d is not None:
+                    d.close()
+        STORE.save(job)
+    except Exception as e:
+        log_access(None, "cellcheck-error", job.get("id", ""), 500, str(e))
+
+
+def recheck_in_background() -> threading.Thread:
+    """서버가 뜰 때, 대조 방식이 바뀌기 전에 읽은 작업을 새 작업부터 하나씩 다시 대조한다(AI 를 부르지 않음).
+    작업 목록의 「자동 통과」, 「확인 필요」 는 대조 결과로 정하므로, 열어 보지 않은 작업도 목록에 나오게 한다."""
+    def go():
+        STORE.load_all()
+        v = _cellcheck_version()
+        todo = sorted((j for j in list(STORE.jobs.values())
+                       if j.get("status") == "done" and j.get("payload") and j["payload"].get("cellcheck_v") != v),
+                      key=lambda j: j.get("created") or 0, reverse=True)
+        for job in todo:
+            if job.get("status") == "done" and job.get("payload"):
+                _cell_check(job, only_stale=True)
+    t = threading.Thread(target=go, daemon=True, name="wuxi-recheck")
+    t.start()
+    return t
 
 
 def _summary(job: dict) -> dict:
     p = job.get("payload") or {}
     comp = p.get("completeness") or {}
     return {"id": job["id"], "status": job.get("status"), "created": job.get("created"), "files": _files(job),
+            "title": job.get("case") or "",     # 일괄 등록한 작업의 건 번호(tools/bulk_jobs.py). 대조 모드 목록에 쓴다
             "lines": len(p.get("items") or []), "verdict": comp.get("verdict"),
             "fail": (p.get("counts") or {}).get("FAIL"), "wall": job.get("wall"),
-            "supplier": job.get("supplier_name") or "", "confirmed": bool(job.get("confirmed"))}
+            "supplier": job.get("supplier_name") or "", "confirmed": bool(job.get("confirmed")),
+            # 건 단위 자동 통과(cell_check.triage). 아직 대조 전이면 None
+            "auto": (p.get("triage") or {}).get("auto") if p.get("cellcheck_v") == _cellcheck_version() else None,
+            "why": (p.get("triage") or {}).get("why") or []}
+
+
+def stored_name(i: int, base: str) -> str:
+    """올린 파일을 작업 폴더에 둘 이름. 앞 두 자리는 올린 차례다(화면은 떼고 보여 준다). tools/bulk_jobs.py 도 쓴다."""
+    safe = re.sub(r"[^A-Za-z0-9._\-가-힣()\[\] ]", "_", base)[-90:] or "doc.pdf"
+    if not safe.lower().endswith(".pdf"):
+        safe += ".pdf"
+    return f"{i:02d}_{safe}"
 
 
 def _files(job: dict) -> list[str]:
@@ -419,6 +525,17 @@ def static(name: str) -> Response:
     return FileResponse(f, media_type=media, headers={"Cache-Control": "max-age=86400"})
 
 
+PDF_DATA = ("cmaps", "standard_fonts")      # pdf.js 가 글꼴을 심지 않은 PDF 를 그릴 때 받아 가는 글꼴 표와 기본 글꼴
+
+
+@app.get("/static/{sub}/{name}", include_in_schema=False)
+def static_pdf_data(sub: str, name: str) -> Response:
+    f = STATIC / sub / name
+    if sub not in PDF_DATA or not re.fullmatch(r"[A-Za-z0-9._-]+", name) or not f.is_file():
+        return _bad("없는 파일입니다", 404)
+    return FileResponse(f, media_type="application/octet-stream", headers={"Cache-Control": "max-age=86400"})
+
+
 @app.get("/admin", include_in_schema=False)
 @app.get("/admin/", include_in_schema=False)
 def admin_index() -> Response:
@@ -469,7 +586,8 @@ def list_jobs(request: Request) -> JSONResponse:
         return _need_login()
     STORE.load_all()
     rows = sorted((_summary(j) for j in STORE.jobs.values()), key=lambda r: r["created"] or 0, reverse=True)
-    return JSONResponse({"jobs": rows[:100]}, headers=NO_STORE)
+    # 월 500건을 넣으면 100건으로는 대조할 작업이 목록에서 잘린다(11/14)
+    return JSONResponse({"jobs": rows[:1000]}, headers=NO_STORE)
 
 
 @app.post("/api/jobs")
@@ -498,10 +616,7 @@ async def create_job(request: Request, pdf: list[UploadFile]) -> JSONResponse:
         if not data.lstrip()[:5].startswith(b"%PDF"):
             shutil.rmtree(d, ignore_errors=True)
             return _bad(f"PDF 가 아닌 파일이 있습니다: {base[:60]}")
-        safe = re.sub(r"[^A-Za-z0-9._\-가-힣()\[\] ]", "_", base)[-90:] or "doc.pdf"
-        if not safe.lower().endswith(".pdf"):
-            safe += ".pdf"
-        name = f"{i:02d}_{safe}"
+        name = stored_name(i, base)
         (d / name).write_bytes(data)
         names.append(name)
     job = {"id": jid, "status": "queued", "created": time.time(), "names": names, "pdfs": [str(d / n) for n in names],
@@ -518,7 +633,10 @@ def get_job(jid: str, request: Request) -> JSONResponse:
     job = STORE.get(jid)
     if not job:
         return _bad("작업을 찾을 수 없습니다. 보관 기간이 지났을 수 있습니다.", 404)
-    out = {k: job.get(k) for k in ("id", "status", "steps", "wall", "error", "payload", "created")}
+    if job.get("status") == "done" and job.get("payload") and job["payload"].get("cellcheck_v") != _cellcheck_version():
+        _cell_check(job, only_stale=True)     # 원문 대조가 생기기 전이나 대조 방식이 바뀌기 전에 읽은 작업은 처음 열 때 한 번 대조해 둔다(AI 를 부르지 않음)
+    # confirmed, review 도 낸다. 빠지면 다시 연 화면에 「확정함」이 안 보이고 판정 단추가 다시 뜬다(11/11)
+    out = {k: job.get(k) for k in ("id", "status", "steps", "wall", "error", "payload", "created", "confirmed", "review")}
     out["files"] = _files(job)
     out["queue"] = STORE.queue_pos(jid)
     return JSONResponse(out, headers=NO_STORE)
@@ -696,6 +814,7 @@ def _start(host: str, port: int, open_browser: bool) -> None:
     if open_browser:
         import webbrowser
         threading.Timer(1.5, lambda: webbrowser.open(url)).start()
+    recheck_in_background()
     import uvicorn
     uvicorn.run(app, host=host, port=port, log_level="warning")
 
@@ -721,6 +840,7 @@ def main(argv=None):
     if a.cmd == "start":
         _start(a.host, a.port, not a.no_browser)
         return
+    recheck_in_background()
     import uvicorn
     uvicorn.run(app, host=a.host, port=a.port, log_level="warning")
 
