@@ -240,37 +240,79 @@ class Store:
         keep = {k: v for k, v in job.items() if k not in ("pdfs",)}
         tmp = d / "job.json.tmp"
         tmp.write_text(json.dumps(keep, ensure_ascii=False), encoding="utf-8")
-        tmp.replace(d / "job.json")
+        # 공용 폴더에서는 다른 사람(점검 도구, 백신)이 job.json 을 잠깐 열고 있으면 바꿔 쓰기가 「액세스 거부」로 실패한다.
+        # 다 읽은 결과를 그 한 번에 잃지 않게 조금 기다려 다시 한다(11/14 HDLCA126741).
+        for wait in (0.2, 0.5, 1, 2, 4, 0):
+            try:
+                tmp.replace(d / "job.json")
+                return
+            except PermissionError:
+                if not wait:
+                    raise
+                time.sleep(wait)
 
     def load_all(self) -> None:
-        """서버가 뜰 때 한 번. 줄에 있던 작업은 다시 줄 세우고, 읽던 작업은 끊김으로 표시한다."""
+        """서버가 뜰 때 한 번. 줄에 있던 작업은 다시 줄 세우고, 읽던 작업은 끊김으로 표시한다.
+
+        🔴 작업 폴더(공유 폴더)에 아직 닿지 않으면 읽은 것으로 치지 않고 다음에 다시 해 본다. 예전에는 VPN 을 켜기 전에
+           서버를 켜면 빈 목록을 읽은 것으로 쳐서, 넣어 둔 대기 작업 50건이 끝내 읽히지 않았다(11/14).
+        """
         with self.lock:
             if self.loaded:
                 return
-            self.loaded = True
             root = jobs_root()
-            if not root.is_dir():
+            try:
+                if not root.is_dir():
+                    return
+                found = self._scan(root, first=True)
+            except OSError:
                 return
-            waiting = []
-            for d in root.iterdir():
-                f = d / "job.json"
-                if not (JOB_ID.match(d.name) and f.is_file()):
-                    continue
-                try:
-                    job = json.loads(f.read_text(encoding="utf-8"))
-                except (OSError, ValueError):
-                    continue
-                job["pdfs"] = [str(d / n) for n in job.get("names") or []]
-                if job.get("status") == "running":
-                    job.update(status="error", error="읽는 도중 서버가 다시 시작되었습니다. 「다시 읽기」를 눌러 주십시오.")
-                    self.save(job)
-                elif job.get("status") == "queued":
-                    waiting.append(job)
-                self.jobs[job["id"]] = job
-            for job in sorted(waiting, key=lambda j: j.get("created") or 0):
-                self.q.put(job["id"])
-            if waiting:
-                self.start()
+            self.loaded = True
+            self._queue(found)
+
+    def rescan(self) -> int:
+        """서버가 켜져 있는 동안 디스크에 새로 생긴 대기 작업(tools/bulk_jobs.py 가 넣은 것)을 줄에 세운다. 세운 수."""
+        with self.lock:
+            if not self.loaded:
+                return 0
+            try:
+                found = self._scan(jobs_root(), first=False)
+            except OSError:          # 공유 폴더가 잠깐 끊기면 다음 차례에
+                return 0
+            return self._queue(found)
+
+    def _scan(self, root: Path, first: bool) -> list[dict]:
+        """디스크의 작업을 읽어 들인다. 이미 아는 작업은 건너뛴다(화면에서 올려 이미 줄에 선 작업을 두 번 세우지 않음)."""
+        waiting = []
+        if not root.is_dir():
+            return waiting
+        for d in root.iterdir():
+            if d.name in self.jobs:
+                continue
+            f = d / "job.json"
+            if not (JOB_ID.match(d.name) and f.is_file()):
+                continue
+            try:
+                job = json.loads(f.read_text(encoding="utf-8"))
+            except (OSError, ValueError):
+                continue
+            if not first and job.get("status") != "queued":
+                continue             # 켜진 뒤에는 새 대기 작업만 받는다(다른 서버가 읽는 중인 작업을 건드리지 않음)
+            job["pdfs"] = [str(d / n) for n in job.get("names") or []]
+            if job.get("status") == "running":
+                job.update(status="error", error="읽는 도중 서버가 다시 시작되었습니다. 「다시 읽기」를 눌러 주십시오.")
+                self.save(job)
+            elif job.get("status") == "queued":
+                waiting.append(job)
+            self.jobs[job["id"]] = job
+        return waiting
+
+    def _queue(self, waiting: list[dict]) -> int:
+        for job in sorted(waiting, key=lambda j: j.get("created") or 0):
+            self.q.put(job["id"])
+        if waiting:
+            self.start()
+        return len(waiting)
 
     def get(self, jid: str) -> dict | None:
         self.load_all()
@@ -307,7 +349,10 @@ class Store:
                         break
                 except Exception as e:      # 일꾼은 죽지 않는다
                     job.update(status="error", error=str(e)[:300])
-                    self.save(job)
+                    try:
+                        self.save(job)
+                    except OSError:         # 공유 폴더가 끊겨 오류도 못 쓰면 메모리에만 남기고 다음 작업으로
+                        pass
                     break
                 # 🔴 AI 사용 한도에 걸리면 다음 작업을 불러도 같은 답이다. 예전에는 그대로 다음 작업으로 넘어가
                 #    줄에 남은 작업이 몇 초 만에 모두 「오류」로 끝났다(11/6, 46건 중 26건). 같은 작업을 대기로 두고
@@ -431,7 +476,11 @@ def recheck_in_background() -> threading.Thread:
     """서버가 뜰 때, 대조 방식이 바뀌기 전에 읽은 작업을 새 작업부터 하나씩 다시 대조한다(AI 를 부르지 않음).
     작업 목록의 「자동 통과」, 「확인 필요」 는 대조 결과로 정하므로, 열어 보지 않은 작업도 목록에 나오게 한다."""
     def go():
-        STORE.load_all()
+        # 작업 폴더에 닿을 때까지 기다린다(VPN 을 서버보다 늦게 켠 경우)
+        while not STORE.loaded:
+            STORE.load_all()
+            if not STORE.loaded:
+                time.sleep(30)
         v = _cellcheck_version()
         todo = sorted((j for j in list(STORE.jobs.values())
                        if j.get("status") == "done" and j.get("payload") and j["payload"].get("cellcheck_v") != v),
@@ -439,9 +488,19 @@ def recheck_in_background() -> threading.Thread:
         for job in todo:
             if job.get("status") == "done" and job.get("payload"):
                 _cell_check(job, only_stale=True)
+        # 켜져 있는 동안 tools/bulk_jobs.py 로 넣은 대기 작업을 1분마다 줄에 세운다. 서버를 다시 켜지 않아도 읽기 시작한다
+        while True:
+            time.sleep(RESCAN_SEC)
+            try:
+                STORE.rescan()
+            except Exception:
+                pass
     t = threading.Thread(target=go, daemon=True, name="wuxi-recheck")
     t.start()
     return t
+
+
+RESCAN_SEC = 60
 
 
 def _summary(job: dict) -> dict:
@@ -814,9 +873,21 @@ def _start(host: str, port: int, open_browser: bool) -> None:
     if open_browser:
         import webbrowser
         threading.Timer(1.5, lambda: webbrowser.open(url)).start()
+    _full_speed()
     recheck_in_background()
     import uvicorn
     uvicorn.run(app, host=host, port=port, log_level="warning")
+
+
+def _full_speed() -> None:
+    """🔴 Windows 가 서버 프로세스를 「효율 모드」로 늦추지 않게 한다. 터미널 탭에서 띄운 서버는 배경 프로세스로 잡혀
+    배터리일 때 스캔 4쪽 OCR 이 50~110초 걸렸고, 이 표시를 건 프로세스는 10~22초였다(11/15). OCR 일꾼들은
+    docpipe._rapid_init 에서 스스로 건다."""
+    try:
+        import docpipe
+        docpipe.no_power_throttle()
+    except Exception:
+        pass
 
 
 def main(argv=None):
@@ -840,6 +911,7 @@ def main(argv=None):
     if a.cmd == "start":
         _start(a.host, a.port, not a.no_browser)
         return
+    _full_speed()
     recheck_in_background()
     import uvicorn
     uvicorn.run(app, host=a.host, port=a.port, log_level="warning")

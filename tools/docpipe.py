@@ -1166,7 +1166,12 @@ WAIT_RESULT = os.environ.get("DOCPIPE_WAIT_RESULT", "") == "1"
 OCR_ENGINE = os.environ.get("DOCPIPE_OCR_ENGINE", "").strip().lower()
 # rapid 는 한 쪽에 1~3초가 든다. 쪽 종류와 B/L 번호는 윗부분에 찍히므로 위쪽만 읽어 시간을 줄일 수 있다(1.0 이면 전체).
 OCR_CROP = float(os.environ.get("DOCPIPE_OCR_CROP", "1.0"))
-OCR_WORKERS = int(os.environ.get("DOCPIPE_OCR_WORKERS", str(max(1, min(8, (os.cpu_count() or 2) // 2)))))
+# 🔴 일꾼 수와 일꾼마다 스레드 수. 예전에는 코어 절반만큼 일꾼을 띄우고 일꾼마다 스레드 하나였다(16코어면 8x1).
+#    한 건의 스캔 쪽은 대개 1~4쪽이라 일꾼 8개 중 넷은 놀고, 한 쪽을 스레드 하나로 읽어 4쪽에 25~28초가 들었다.
+#    일꾼 4개에 스레드 3개씩이면 4쪽이 13~14초, 16쪽은 그대로 50초 안팎이다(11/15, i5-1340P 노트북에서 번갈아 잼).
+_CPU = os.cpu_count() or 2
+OCR_WORKERS = int(os.environ.get("DOCPIPE_OCR_WORKERS", str(max(1, min(8, _CPU // 4)))))
+OCR_THREADS = int(os.environ.get("DOCPIPE_OCR_THREADS", str(max(1, min(4, (_CPU * 3 // 4) // OCR_WORKERS)))))
 _RAPID_POOL = None
 
 
@@ -1200,23 +1205,45 @@ _rapid_eng = None
 _rapid_v3 = False
 
 
+def no_power_throttle() -> bool:
+    """Windows 가 이 프로세스를 「효율 모드」로 늦추지 않게 한다(배터리로 도는 노트북에서 OCR 이 서너 배 느려짐, 11/15).
+    시스템 설정이 아니라 이 프로세스에만 거는 표시다. DOCPIPE_NO_THROTTLE=0 이면 안 건다."""
+    if sys.platform != "win32" or os.environ.get("DOCPIPE_NO_THROTTLE", "1") == "0":
+        return False
+    try:
+        import ctypes
+        from ctypes import wintypes
+
+        class _PPT(ctypes.Structure):
+            _fields_ = [("Version", wintypes.ULONG), ("ControlMask", wintypes.ULONG), ("StateMask", wintypes.ULONG)]
+        st = _PPT(1, 0x1, 0)            # EXECUTION_SPEED 를 다루되 끈다
+        k = ctypes.WinDLL("kernel32", use_last_error=True)
+        k.GetCurrentProcess.restype = wintypes.HANDLE
+        k.SetProcessInformation.argtypes = [wintypes.HANDLE, ctypes.c_int, ctypes.c_void_p, wintypes.DWORD]
+        k.SetProcessInformation.restype = wintypes.BOOL
+        return bool(k.SetProcessInformation(k.GetCurrentProcess(), 4, ctypes.byref(st), ctypes.sizeof(st)))  # ProcessPowerThrottling
+    except Exception:
+        return False
+
+
 def _rapid_init():
     """RapidOCR 를 띄운다. 파이썬 3.12 까지는 rapidocr_onnxruntime(1.x), 3.13 부터는 rapidocr(3.x) 를 쓴다.
 
     두 판은 부르는 법과 돌려주는 꼴이 다르다. 1.x 는 ([상자, 글, 점수], 시간), 3.x 는 boxes, txts, scores 를 가진 객체다.
     """
     global _rapid_eng, _rapid_v3
-    os.environ["OMP_NUM_THREADS"] = "1"
+    no_power_throttle()
+    os.environ["OMP_NUM_THREADS"] = str(OCR_THREADS)
     try:
         from rapidocr_onnxruntime import RapidOCR
-        _rapid_eng = RapidOCR(intra_op_num_threads=1, inter_op_num_threads=1)
+        _rapid_eng = RapidOCR(intra_op_num_threads=OCR_THREADS, inter_op_num_threads=1)
         _rapid_v3 = False
     except ImportError:
         import logging
         from rapidocr import RapidOCR
         logging.getLogger("RapidOCR").setLevel(logging.WARNING)
         _rapid_eng = RapidOCR(params={"Global.use_cls": False, "Global.log_level": "warning",
-                                      "EngineConfig.onnxruntime.intra_op_num_threads": 1,
+                                      "EngineConfig.onnxruntime.intra_op_num_threads": OCR_THREADS,
                                       "EngineConfig.onnxruntime.inter_op_num_threads": 1})
         _rapid_v3 = True
 
@@ -3471,8 +3498,10 @@ def to_so_row(ex):
 # ---------- 실행 ----------
 def run(bundles, codes_xlsx, extractions=None, show=True, llm=None, model=None, anthropic=False, vision=False,
         truth=None, llm_key=None, upstage_ie=False, masters=None, customer=None, mail_values=None,
-        claude_cli=False, claude_bin="claude", claude_think=False, claude_config_dir=None, split=None):
-    """bundles: [(이름, [pdf 경로, ...]), ...]. llm 은 OpenAI 호환 /v1 주소, anthropic=True 면 Anthropic API."""
+        claude_cli=False, claude_bin="claude", claude_think=False, claude_config_dir=None, split=None, prepared=None):
+    """bundles: [(이름, [pdf 경로, ...]), ...]. llm 은 OpenAI 호환 /v1 주소, anthropic=True 면 Anthropic API.
+    prepared: {이름: 쪽들}. 부르는 쪽이 이미 쪽을 가르고 스캔 쪽을 OCR 해 두었으면 그 쪽들을 그대로 쓴다.
+    (그림 파일 page.png 를 지우는 것도 부르는 쪽 몫이다.)"""
     codes = load_code_lists(codes_xlsx) if codes_xlsx else {}
     masters = masters or {}
     if split is None: split = SPLIT
@@ -3480,9 +3509,15 @@ def run(bundles, codes_xlsx, extractions=None, show=True, llm=None, model=None, 
     extractions = dict(extractions or {})
     for name, paths in bundles:
         t0 = time.perf_counter()
-        pages = apply_awb_sort([classify(p) for path in paths for p in load_pdf(path)])
-        scan_dir = ocr_pages(pages)
-        route_scans(pages)
+        # 🔴 화면(wuxi_engine.read_bundle)은 공급사를 알아보려고 이미 쪽을 가르고 스캔 쪽을 OCR 했다. 여기서
+        #    다시 하면 같은 OCR 을 두 번 한다. 스캔 4쪽짜리 건에서 OCR 한 번에 20초쯤 들어 건당 시간의 3분의 1이
+        #    중복이었다(11/15). 받은 쪽이 있으면 그대로 쓴다. 결과는 같다(같은 파일, 같은 엔진, 같은 해상도).
+        if prepared and name in prepared:
+            pages, scan_dir = prepared[name], None
+        else:
+            pages = apply_awb_sort([classify(p) for path in paths for p in load_pdf(path)])
+            scan_dir = ocr_pages(pages)
+            route_scans(pages)
         t1 = time.perf_counter()
         sel = select_pages(pages)
         kept = set(id(p) for p in sel)

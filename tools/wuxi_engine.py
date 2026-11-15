@@ -13,6 +13,7 @@
 """
 from __future__ import annotations
 
+import copy
 import os
 import re
 import shutil
@@ -199,6 +200,7 @@ def read_bundle(pdfs, name="올린 서류", on_step=None, model=None, claude_bin
 
     with LOCK:
         _local.on_step = on_step
+        scan_dir = None
         try:
             t0 = time.perf_counter()
             docpipe.set_prompt("h1")
@@ -206,10 +208,8 @@ def read_bundle(pdfs, name="올린 서류", on_step=None, model=None, claude_bin
             pages = docpipe.apply_awb_sort([docpipe.classify(p) for path in pdfs for p in docpipe.load_pdf(path)])
             n_scan = sum(1 for p in pages if p.kind == "SCAN")
             if n_scan:
-                d = docpipe.ocr_pages(pages)
+                scan_dir = docpipe.ocr_pages(pages)     # 그린 그림은 판독(docpipe.run)이 끝날 때까지 둔다. 모델에 그대로 보낸다
                 docpipe.route_scans(pages)
-                if d:
-                    shutil.rmtree(d, ignore_errors=True)
             kinds = [p.kind for p in pages]
             text = _pages_text(pages)
             supplier = wuxi_rules.identify_supplier(text)
@@ -226,10 +226,12 @@ def read_bundle(pdfs, name="올린 서류", on_step=None, model=None, claude_bin
             step(f"서류 {len(pdfs)}개 쪽 가르기", True, time.perf_counter() - t0)
             step(f"모두 {len(pages)}쪽: " + ", ".join(f"{k} {v}쪽" for k, v in cnt.items())
                  + (f" (스캔 {n_scan}쪽은 OCR 로 먼저 읽음)" if n_scan else ""), True, 0)
+            # 가른 쪽을 그대로 넘겨 OCR 을 한 번만 한다. 판독이 쪽에 표시를 붙이므로(버린 쪽, 해상) 낱장 복사본을 준다
             rows = docpipe.run([(name, list(pdfs))], os.path.join(wuxi_paths.SCHEMA, "codes.json"),
                                model=model or wuxi_paths.model(), show=False, masters=docpipe.load_masters(), claude_cli=True,
                                claude_bin=claude_bin or wuxi_paths.claude_bin(),
-                               claude_config_dir=config_dir if config_dir is not None else wuxi_paths.claude_config_dir())
+                               claude_config_dir=config_dir if config_dir is not None else wuxi_paths.claude_config_dir(),
+                               prepared={name: [copy.copy(p) for p in pages]})
             r = rows[0]
             llm = r.get("llm") or {}
             if llm.get("error"):
@@ -256,6 +258,8 @@ def read_bundle(pdfs, name="올린 서류", on_step=None, model=None, claude_bin
                     "model": model or wuxi_paths.model()}
         finally:
             _local.on_step = None
+            if scan_dir:
+                shutil.rmtree(scan_dir, ignore_errors=True)
 
 
 def friendly_error(msg: str) -> str:

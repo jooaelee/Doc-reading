@@ -1,4 +1,6 @@
 """칸별 원문 대조(tools/cell_check.py). 가짜 인보이스 PDF 를 그 자리에서 만들어 본다. AI 를 부르지 않는다."""
+import json
+
 import pytest
 
 pymupdf = pytest.importorskip("pymupdf")
@@ -65,14 +67,78 @@ def test_빈_Material_칸에_원본_같은_줄의_하이닉스_번호를_알린�
 
 
 def test_스캔이라_글자층이_없으면_확인_불가다():
+    """OCR 을 끄거나 OCR 엔진이 없으면 예전처럼 견주지 않는다."""
     d = pymupdf.open()
     d.new_page()
     items = [row()]
     try:
-        C.check_items(items, [("a.pdf", d)], META)
+        C.check_items(items, [("a.pdf", d)], META, ocr=False)
     finally:
         d.close()
     assert set(items[0]["_ok"].values()) <= {"?", "-"}
+
+
+def ocr_lines(lines, y=90):
+    """가짜 OCR 결과. 줄마다 [x0, y0, x1, y1, 글]."""
+    out = [[40, 40, 400, 50, HEAD[:90]]]
+    for ln in lines:
+        out.append([40, y - 9, 40 + 5 * len(ln), y, ln])
+        y += 30
+    return out
+
+
+def test_스캔_쪽은_OCR_글자로_견준다(monkeypatch):
+    """10월 50건 중 29건이 스캔이라 칸을 하나도 견주지 못하고 모두 사람에게 넘어갔다(11/14)."""
+    got = ocr_lines(["1  4303172339  P3024498  PUMP SEAL KIT   10  EA  12.50  125.00",
+                     "2  4303172339  P3024499  O-RING SET       5  EA   1.25    6.25"])
+    monkeypatch.setattr(C, "ocr_page", lambda page: got)
+    monkeypatch.setattr(C, "_engine", lambda: True)
+    d = pymupdf.open()
+    d.new_page()
+    items = [row(), row(**{"Material": "P3024499", "품명": "O-RING SET", "B/L quantity": 3, "Net Price": 1.25})]
+    try:
+        C.check_items(items, [("a.pdf", d)], META)
+    finally:
+        d.close()
+    assert items[0]["_ok"] == {c: "ok" for c in C.CHECK_COLS if c != "Vendor Part No."} | {"Vendor Part No.": "-"}
+    assert items[1]["_ok"]["B/L quantity"] == "miss"       # 원본은 5, 판독은 3
+    assert items[0]["_at"]["Material"][:2] == [0, 1]        # 원본 위 상자도 OCR 자리로 그린다
+    assert C.triage(items[:1], "이상 없음")["auto"] is True
+
+
+def test_OCR_은_PDF_옆에_남겨_한_번만_한다(tmp_path, monkeypatch):
+    calls = []
+
+    def fake(page):
+        calls.append(1)
+        return ocr_lines(["1  4303172339  P3024498  PUMP SEAL KIT   10  EA  12.50  125.00"])
+    monkeypatch.setattr(C, "ocr_page", fake)
+    monkeypatch.setattr(C, "_engine", lambda: True)
+    f = tmp_path / "a.pdf"
+    d = pymupdf.open()
+    d.new_page()
+    d.save(str(f))
+    d.close()
+    for _ in range(2):
+        items = [row()]
+        d = pymupdf.open(str(f))
+        try:
+            C.check_items(items, [("a.pdf", d)], META)
+        finally:
+            d.close()
+        assert items[0]["_ok"]["Material"] == "ok"
+    assert len(calls) == 1
+    assert (tmp_path / "a.pdf.ocr.json").is_file()
+
+
+def test_단가_0_도_빈_칸이_아니라_원본과_견준다():
+    """무상 품목의 단가 0 을 빈 칸으로 보면 원본이 10,729.14 여도 넘어간다."""
+    items = [row(**{"Net Price": 0}), row(**{"Material": "P3024499", "품명": "O-RING SET", "B/L quantity": 5, "Net Price": 0})]
+    check(items, ["1  4303172339  P3024498  PUMP SEAL KIT   10  EA  0.00  0.00",
+                  "   (spacer line one)", "   (spacer line two)", "   (spacer line three)", "   (spacer line four)",
+                  "2  4303172339  P3024499  O-RING SET       5  EA   10,729.14    53,645.70"])
+    assert items[0]["_ok"]["Net Price"] == "ok"
+    assert items[1]["_ok"]["Net Price"] == "miss"
 
 
 def test_작업을_열면_대조를_붙이고_확정_여부를_같이_낸다(tmp_path, monkeypatch):
@@ -164,3 +230,45 @@ def test_인보이스_줄이_있으면_PL_에만_있는_줄은_자동_통과를_
     pl = _flagged(**{"출처": "PL", "Material": "", "Purchase Order": ""})
     assert C.triage([_flagged(), pl], "이상 없음")["auto"] is True
     assert C.triage([pl], "이상 없음")["why"] == ["인보이스 줄을 못 읽음", "확인할 칸 2개"]
+
+
+def test_빈_부품_번호에_그_줄의_일련번호가_있으면_사람이_본다():
+    """HDLCA125295: 사람이 빈 Vendor Part No. 에 일련번호를 넣었다. 자동 통과로 넘기지 않는다."""
+    items = [row(**{"Serial No.": "125XH001301"})]
+    check(items, ["1  4303172339  P3024498  PUMP SEAL KIT  125XH001301  10  EA  12.50  125.00"])
+    assert items[0]["_hint"]["Vendor Part No."] == "125XH001301"
+    assert C.triage(items, "이상 없음")["auto"] is False
+
+
+def test_스캔_쪽_여럿은_엔진_OCR_일꾼으로_한꺼번에_읽어_둔다(tmp_path, monkeypatch):
+    """스캔 6쪽짜리 건에서 쪽을 하나씩 OCR 하느라 대조에만 3분이 들었다(11/15)."""
+    asked = []
+
+    def pool(pgs):
+        asked.append(len(pgs))
+        return [ocr_lines(["1  4303172339  P3024498  PUMP SEAL KIT   10  EA  12.50  125.00"]),
+                ocr_lines(["2  4303172339  P3024499  O-RING SET       5  EA   1.25    6.25"])]
+
+    def one(page):
+        raise AssertionError("미리 읽어 둔 쪽을 다시 OCR 하면 안 됩니다")
+    monkeypatch.setattr(C, "_pool_ocr", pool)
+    monkeypatch.setattr(C, "ocr_page", one)
+    monkeypatch.setattr(C, "_engine", lambda: True)
+    f = tmp_path / "a.pdf"
+    d = pymupdf.open()
+    d.new_page()
+    d.new_page()
+    d.save(str(f))
+    d.close()
+    meta = META + [{"file": "a.pdf", "no": 2, "kind": "CI", "scan": True}]
+    items = [row(), row(**{"Material": "P3024499", "품명": "O-RING SET", "B/L quantity": 5, "Net Price": 1.25})]
+    d = pymupdf.open(str(f))
+    try:
+        C.check_items(items, [("a.pdf", d)], meta)
+    finally:
+        d.close()
+    assert asked == [2]
+    assert items[0]["_ok"]["Material"] == "ok" and items[1]["_ok"]["B/L quantity"] == "ok"
+    assert items[1]["_at"]["Material"][:2] == [0, 2]                 # 둘째 쪽의 자리
+    cache = json.loads((tmp_path / "a.pdf.ocr.json").read_text(encoding="utf-8"))
+    assert sorted(cache["pages"]) == ["1", "2"]                       # 다시 대조할 때는 OCR 하지 않는다

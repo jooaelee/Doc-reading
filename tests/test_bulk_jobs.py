@@ -197,3 +197,64 @@ def test_미리_보기는_아무것도_넣지_않는다(env, capsys):
     bulk.main([str(root), "--dry-run"])
     assert not web.jobs_root().exists() or not list(web.jobs_root().iterdir())
     assert "넣을 건 2건" in capsys.readouterr().out
+
+
+def test_작업_폴더에_닿기_전에_켜도_나중에_대기_작업을_읽는다(env, monkeypatch):
+    """11/14: VPN 을 켜기 전에 서버를 켜 빈 목록을 읽은 것으로 쳐서, 넣어 둔 50건이 읽히지 않았다."""
+    bulk, web, root = env
+    store = web.Store()
+    monkeypatch.setattr(store, "start", lambda: None)
+    store.load_all()                                                  # 아직 작업 폴더가 없다(공유 폴더가 안 붙은 것과 같다)
+    assert not store.loaded and not store.jobs
+    bulk.main([str(root)])
+    store.load_all()
+    assert store.loaded and sorted(store.jobs[j]["case"] for j in store.q.queue) == ["CASE_A", "CASE_B"]
+
+
+def test_켜져_있는_동안_새로_넣은_대기_작업만_줄에_세운다(env, monkeypatch):
+    bulk, web, root = env
+    bulk.main([str(root), "--cases", "CASE_A"])
+    store = web.Store()
+    monkeypatch.setattr(store, "start", lambda: None)
+    store.load_all()
+    assert len(store.q.queue) == 1
+    bulk.main([str(root)])                                            # 서버가 켜진 뒤에 CASE_B 를 넣음
+    done = {"id": "9" * 32, "status": "done", "created": 3, "names": []}
+    store.save(done)                                                  # 다른 상태의 새 작업은 건드리지 않음
+    assert store.rescan() == 1
+    assert [store.jobs[j]["case"] for j in store.q.queue] == ["CASE_A", "CASE_B"]
+    assert done["id"] not in store.jobs
+    assert store.rescan() == 0                                        # 두 번 세우지 않음
+
+
+def test_공용_폴더에서_잠깐_막혀도_결과를_저장한다(env, monkeypatch):
+    """다른 프로그램이 job.json 을 잠깐 열고 있으면 바꿔 쓰기가 「액세스 거부」로 실패한다. 다 읽은 결과를 잃지 않는다."""
+    _, web, _ = env
+    import pathlib
+    real = pathlib.Path.replace
+    tries = []
+
+    def flaky(self, target):
+        tries.append(1)
+        if len(tries) < 3:
+            raise PermissionError(5, "액세스가 거부되었습니다")
+        return real(self, target)
+
+    monkeypatch.setattr(pathlib.Path, "replace", flaky)
+    monkeypatch.setattr(web.time, "sleep", lambda s: None)
+    web.STORE.save({"id": "a" * 32, "status": "done", "payload": {"items": []}})
+    assert len(tries) == 3
+    assert json.loads((web.STORE.dir("a" * 32) / "job.json").read_text(encoding="utf-8"))["status"] == "done"
+
+
+def test_계속_막히면_저장_실패를_알린다(env, monkeypatch):
+    _, web, _ = env
+    import pathlib
+
+    def deny(self, target):
+        raise PermissionError(5, "액세스가 거부되었습니다")
+
+    monkeypatch.setattr(pathlib.Path, "replace", deny)
+    monkeypatch.setattr(web.time, "sleep", lambda s: None)
+    with pytest.raises(PermissionError):
+        web.STORE.save({"id": "b" * 32, "status": "done"})
