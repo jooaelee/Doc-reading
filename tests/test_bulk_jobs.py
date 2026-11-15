@@ -125,6 +125,7 @@ def test_한곳에_모인_PDF_는_파일_하나가_건_하나다(env, capsys):
     out = capsys.readouterr().out
     assert "남은 건 2건" in out and "日本车板图.pdf" in out
     assert [j["case"] for j in jobs(web)] == ["CASE_A", "CASE_B"]
+    __import__("time").sleep(0.01)   # 한 번에 넣은 건은 created 를 0.001초씩 늘린다. 바로 다시 넣으면 차례가 겹칠 수 있다
     bulk.main([str(root)])
     assert [j["case"] for j in jobs(web)][2:] == ["HDLCA126459", "SFSA2610153"]
 
