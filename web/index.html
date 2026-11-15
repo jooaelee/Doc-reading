@@ -22,6 +22,9 @@
 .jobs .l1{display:flex;gap:7px;align-items:center;font-weight:600;font-size:13px;min-width:0}
 .jobs .l1 span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0}
 .jobs .l2{color:var(--muted);font-size:12px;display:flex;gap:8px}
+.jobs .l3{color:var(--warn);font-size:11.5px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.jfilter{display:flex;gap:6px;flex-wrap:wrap;padding:0 8px;margin:0 0 8px}
+.jfilter .chip{cursor:pointer;font:inherit;font-size:12px}
 .res-head{display:flex;gap:16px;align-items:flex-start;flex-wrap:wrap;margin-bottom:12px}
 .res-head h2{margin:0;font-size:18px}
 .res-head .meta{color:var(--muted);font-size:12.5px;margin-top:2px}
@@ -57,16 +60,62 @@ details.more{margin-top:12px}
 details.more summary{cursor:pointer;color:var(--ink2);font-weight:600;font-size:13px;padding:6px 0}
 .ppane{position:sticky;top:76px;max-height:calc(100vh - 96px);overflow:auto;border:1px solid var(--line);border-radius:var(--r-s);background:#eef0f3;padding:10px}
 .ppane .ph{display:flex;align-items:center;gap:8px;margin:0 2px 8px;font-size:12.5px;color:var(--ink2);font-weight:600}
+/* 원본 칸 머리(확대 버튼)는 아래 쪽으로 내려가도 칸 맨 위에 붙어 있게 한다 */
+.ppane .ph{position:sticky;top:-10px;left:-10px;z-index:3;background:#eef0f3;margin:-10px -10px 8px;padding:8px 12px;border-bottom:1px solid var(--line)}
+.pg canvas.hi{position:absolute;left:0;top:0;width:100%;height:100%}
+.ppane.zoomed .pg{cursor:grab}
+.ppane.panning,.ppane.panning .pg{cursor:grabbing}
 .pg{position:relative;margin:0 0 10px;background:#fff;box-shadow:0 1px 3px rgba(0,0,0,.12)}
 .pg canvas{display:block;width:100%;height:auto}
 .pg .lbl{position:absolute;top:4px;left:6px;font-size:11px;color:var(--muted);background:rgba(255,255,255,.85);padding:0 5px;border-radius:4px}
-.hl{position:absolute;background:rgba(253,186,64,.38);border:1.5px solid #e0a020;border-radius:2px;pointer-events:none}
+.hl{position:absolute;background:rgba(253,186,64,.22);border:1.5px solid #e0a020;border-radius:2px;pointer-events:none}
+.hl.on{background:rgba(36,87,230,.18);border:2.5px solid var(--accent);z-index:2}
 .guide{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px;margin-top:14px;text-align:left}
 .guide div{background:#fff;border:1px solid var(--line);border-radius:var(--r);padding:14px}
 .guide b{display:block;margin-bottom:4px}
 .guide span{color:var(--muted);font-size:12.5px}
 @media screen and (max-width:1100px){.split{grid-template-columns:minmax(0,1fr)}.ppane{position:static;max-height:70vh}}
 @media screen and (max-width:760px){.layout{grid-template-columns:minmax(0,1fr)}.guide{grid-template-columns:minmax(0,1fr)}.jobs{max-height:260px}}
+/* 대조 모드: 원본과 표를 나란히 크게 두고 Main 칸만 본다. 정답을 확정하는 사람이 쓴다 */
+.divider,.zoom,#cmpNav,#allCols{display:none}
+/* 목록은 작업을 연 동안만 접는다. 첫 화면에서까지 접으면 작업을 고를 길이 없다(11/11) */
+body.cmp.res .layout{grid-template-columns:minmax(0,1fr);max-width:none;padding:12px 14px 20px}
+body.cmp.res .side{display:none}
+body.cmp .split{grid-template-columns:minmax(0,var(--tw,60%)) 12px minmax(0,1fr);gap:0}
+body.cmp .divider{display:block;cursor:col-resize;align-self:stretch;position:relative;touch-action:none}
+body.cmp .divider:before{content:"";position:absolute;top:0;bottom:0;left:5px;width:2px;background:var(--line2);border-radius:2px}
+body.cmp .divider:hover:before,body.cmp .divider.drag:before,body.cmp .divider:focus-visible:before{background:var(--accent)}
+body.cmp .ppane{position:sticky;top:64px;max-height:calc(100vh - 76px)}
+body.cmp .items-wrap{max-height:calc(100vh - 250px)}
+body.cmp .zoom{display:flex;gap:4px;margin-left:auto}
+body.cmp #cmpNav{display:flex;gap:8px;align-items:center}
+body.cmp #cmpNav select{max-width:300px;padding:5px 8px}
+body.cmp #allCols{display:inline-flex}
+body.cmp table.items th,body.cmp table.items td{padding:4px 6px}
+body.cmp table.items td[data-c="품명"]{white-space:normal;min-width:130px;max-width:320px}
+body.cmp.dragging{user-select:none;cursor:col-resize}
+body.cmp table.items .pl{margin-left:5px;padding:0 4px;border-radius:4px;background:var(--warn-soft,#fff4d6);color:var(--ink2);font-size:10.5px;font-weight:600}
+/* 원문 대조(tools/cell_check.py): 사람이 볼 칸만 표시한다 */
+.ckbar{display:none}
+body.cmp .ckbar{display:flex;gap:12px;align-items:center;flex-wrap:wrap;font-size:12.5px;color:var(--ink2);margin:0 0 8px}
+body.cmp .ckbar .k{display:inline-block;width:11px;height:11px;border-radius:3px;margin-right:4px;vertical-align:-1px}
+body.cmp table.items td.ck-miss{box-shadow:inset 0 0 0 2px #e0a020;background:#fff7e3}
+body.cmp table.items td.ck-unk{background:#eef0f3}
+body.cmp table.items td.ck-hint{box-shadow:inset 0 0 0 2px #e9c46a}
+body.cmp table.items td.ck-hint:empty::after{content:attr(data-hint);color:#a66b00;font-style:italic}
+body.cmp table.items td.ck-blank{box-shadow:inset 0 0 0 2px var(--bad);background:var(--bad-soft)}
+/* 확인할 칸이 없는 줄은 접는다(11/13). 정답 93건에서 원본과 같은 칸 1,579칸 중 정답과 다른 칸은 10칸이었다 */
+body.cmp.calm table.items tr.calm{display:none}
+table.items tr.calmnote{display:none}
+body.cmp.calm table.items tr.calmnote{display:table-row}
+table.items tr.calmnote td{padding:14px 10px;white-space:normal}
+#aside{margin:0 0 10px}
+#aside .note{padding:8px 12px}
+#aside table{margin-top:6px;font-size:12.5px;display:block;max-height:220px;overflow:auto}
+#aside td{padding:3px 8px;border-top:1px solid var(--line)}
+body.cmp .banner ul{display:none}     /* 어긋난 까닭은 검사 이름표에 마우스를 올리면 보인다 */
+body.cmp .banner .note{padding:8px 12px}
+body.cmp .banner .row{margin-top:6px}
 </style>
 </head>
 <body>
@@ -109,6 +158,7 @@ details.more summary{cursor:pointer;color:var(--ink2);font-weight:600;font-size:
       <div class="card" style="padding:14px 10px 10px">
         <h2 style="padding:0 8px">최근 작업</h2>
         <p class="desc" style="padding:0 8px" id="keep">올린 서류와 결과는 14일 뒤 지웁니다.</p>
+        <div class="jfilter" id="jobFilter" role="group" aria-label="작업 거르기"></div>
         <ul class="jobs" id="jobs"></ul>
       </div>
     </aside>
@@ -148,6 +198,8 @@ details.more summary{cursor:pointer;color:var(--ink2);font-weight:600;font-size:
             <div class="meta" id="resMeta"></div>
           </div>
           <div class="acts">
+            <span id="cmpNav"><select id="jobPick" class="in" aria-label="대조할 작업 고르기"></select><span class="small muted" id="cmpCount"></span></span>
+            <button class="btn ghost" type="button" id="cmpBtn" title="원본과 표를 나란히 크게 두고 Main 칸만 봅니다">대조 모드</button>
             <span class="small muted" id="dirty"></span>
             <button class="btn ghost" type="button" data-act="retry">다시 읽기</button>
             <button class="btn ghost danger" type="button" data-act="delete">지우기</button>
@@ -156,13 +208,16 @@ details.more summary{cursor:pointer;color:var(--ink2);font-weight:600;font-size:
           </div>
         </div>
         <div class="banner" id="banner"></div>
+        <div id="aside"></div>
         <div class="split" id="split">
           <div class="tpane">
+            <div class="ckbar" id="ckbar"></div>
             <div class="tbl-wrap items-wrap"><table class="t items" id="items"></table></div>
             <div class="under">
               <button class="btn sm" type="button" id="addRow">줄 추가</button>
               <span class="tiny muted">줄을 고른 뒤 누르면 그 아래에, 고르지 않으면 맨 아래에 더합니다.</span>
               <span class="sp"></span>
+              <button class="btn sm ghost" type="button" id="allCols">모든 열 보기</button>
               <button class="btn sm ghost" type="button" id="togglePdf">원본 숨기기</button>
             </div>
             <div class="legend">
@@ -179,8 +234,11 @@ details.more summary{cursor:pointer;color:var(--ink2);font-weight:600;font-size:
               </div>
             </details>
           </div>
+          <div class="divider" id="divider" role="separator" aria-orientation="vertical" aria-label="표와 원본 너비 조절" tabindex="0"></div>
           <div class="ppane" id="ppane">
-            <div class="ph">원본 서류 <span class="muted" id="pdfInfo"></span></div>
+            <div class="ph">원본 서류 <span class="muted" id="pdfInfo"></span>
+              <span class="zoom" title="원본 위에서 Ctrl 을 누른 채 휠을 돌려도 확대, 축소합니다"><button class="btn sm ghost" type="button" data-zoom="-1" aria-label="원본 축소">−</button><button class="btn sm ghost" type="button" data-zoom="0" id="zoomFit" title="원본 폭에 맞춥니다">맞춤</button><button class="btn sm ghost" type="button" data-zoom="1" aria-label="원본 확대">+</button></span>
+            </div>
             <div id="pdf"></div>
           </div>
         </div>
@@ -198,6 +256,17 @@ const esc = s => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&amp
 let LIMITS = {files: 30, mb: 40, keepDays: 14};
 let PICK = [], JOBS = [], CUR = null, P = null, ORIG = null, DELETED = [], SEL = -1, POLL = null, LIST_POLL = null, PDF_FOR = null, SHOW_PDF = true, SAVED = '';
 const HIDE_COLS = ['케이스'];
+// 대조 모드에서 보는 칸: Main 항목(gerp_xlsx.MAIN_ITEMS)과 통화, 그리고 어느 인보이스의 어느 서류 줄인지
+// 출처(CI, PL)는 열로 두지 않고 줄 번호 옆에 PL 표시로 붙인다. 노트북 폭에서도 통화까지 한 화면에 들어오게
+const CMP_COLS = ['Invoice No.', 'Purchase Order', 'Material', '품명', 'Vendor Part No.', 'B/L quantity', '단위', 'Net Price', 'Currency'];
+const CMP_LABEL = {'Purchase Order': 'PO No.', 'Material': 'Material Code', 'Vendor Part No.': '부품 번호', 'B/L quantity': '납품 수량', 'Net Price': '단가', 'Currency': '통화'};
+const LS = {get(k, d) { try { const v = localStorage.getItem(k); return v == null ? d : JSON.parse(v); } catch (e) { return d; } },
+            set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch (e) {} }};
+let CMP = !!LS.get('wuxi_cmp', false), ALL_COLS = false, ZOOM = 1, TW = +LS.get('wuxi_tw', 60) || 60;
+let CALM = LS.get('wuxi_calm', true) !== false;   // 대조 모드에서 확인할 칸이 없는 줄을 접는다
+let ASIDE = [], RESTORED = 0;   // 품목 표에서 뺀 포장명세서 줄(PL 에만 있고 인보이스와 못 이은 줄), 표로 되돌린 줄 수
+// 비어 있으면 사람이 볼 칸. 정답 93건에서 고친 칸이 빈 Material(36칸)과 빈 PO(48칸)에 몰려 있었다(11/13)
+const BLANK_FLAG = ['Material', 'Purchase Order'];
 
 async function api(path, opt = {}) {
   const r = await fetch(ROOT + path, opt);
@@ -286,26 +355,69 @@ async function loadJobs() {
   clearTimeout(LIST_POLL);
   if (JOBS.some(j => j.status === 'queued' || j.status === 'running')) LIST_POLL = setTimeout(loadJobs, 4000);
 }
+// 건 단위 자동 통과(서버 cell_check.triage). 사람이 볼 건만 추린다. auto 가 null 이면 아직 대조 전
 function jobStatus(j) {
   if (j.status === 'queued') return ['run', '기다리는 중'];
   if (j.status === 'running') return ['run', '읽는 중'];
   if (j.status === 'error') return ['bad', '오류'];
+  if (j.confirmed) return ['ok', '확정'];
+  if (j.auto === true) return ['ok', '자동 통과'];
+  if (j.auto === false) return ['warn', '확인 필요'];
   if (j.verdict === '빠진 줄 의심') return ['warn', '빠진 줄 의심'];
-  return ['ok', j.confirmed ? '확정' : '완료'];
+  return ['off', '대조 전'];
 }
+// need: 사람이 볼 건(확정하지 않았고 자동 통과가 아닌 건, 읽는 중과 오류 포함)
+const needs = j => !j.confirmed && j.auto !== true;
+let JFILTER = LS.get('wuxi_jfilter', 'need');
 function drawJobs() {
-  if (!JOBS.length) { $('#jobs').innerHTML = '<li class="muted small" style="cursor:default">아직 올린 서류가 없습니다.</li>'; return; }
-  $('#jobs').innerHTML = JOBS.map(j => {
+  const n = {need: JOBS.filter(needs).length, auto: JOBS.filter(j => !j.confirmed && j.auto === true).length, all: JOBS.length};
+  const names = {need: '확인 필요', auto: '자동 통과', all: '전체'};
+  $('#jobFilter').innerHTML = Object.keys(names).map(k => `<button type="button" class="chip ${JFILTER === k ? 'on' : ''}" data-f="${k}" aria-pressed="${JFILTER === k}">${names[k]} ${n[k]}</button>`).join('');
+  $('#jobFilter').querySelectorAll('[data-f]').forEach(b => b.onclick = () => { JFILTER = b.dataset.f; LS.set('wuxi_jfilter', JFILTER); drawJobs(); });
+  const list = JOBS.filter(j => JFILTER === 'all' || (JFILTER === 'need' ? needs(j) : !j.confirmed && j.auto === true));
+  if (!list.length) {
+    $('#jobs').innerHTML = `<li class="muted small" style="cursor:default">${JOBS.length ? (JFILTER === 'need' ? '사람이 확인할 작업이 없습니다.' : '해당하는 작업이 없습니다.') : '아직 올린 서류가 없습니다.'}</li>`;
+    drawNav(); return;
+  }
+  $('#jobs').innerHTML = list.map(j => {
     const [c, label] = jobStatus(j), f = j.files || [];
-    const name = j.supplier || f[0] || '올린 서류';
-    return `<li data-id="${j.id}" class="${CUR && CUR.id === j.id ? 'on' : ''}"><div class="l1"><span class="dot ${c}"></span><span>${esc(name)}</span></div>
-      <div class="l2"><span>${when(j.created)}</span><span>파일 ${f.length}개</span>${j.status === 'done' ? `<span>${j.lines}줄</span>` : ''}<span>${label}</span></div></li>`;
+    const name = j.supplier || f[0] || '올린 서류', why = !j.confirmed && j.auto === false ? (j.why || []).join(', ') : '';
+    return `<li data-id="${j.id}" class="${CUR && CUR.id === j.id ? 'on' : ''}"${why ? ` title="${esc(why)}"` : ''}><div class="l1"><span class="dot ${c}"></span><span>${esc(name)}</span></div>
+      <div class="l2"><span>${when(j.created)}</span><span>파일 ${f.length}개</span>${j.status === 'done' ? `<span>${j.lines}줄</span>` : ''}<span>${label}</span></div>${why ? `<div class="l3">${esc(why)}</div>` : ''}</li>`;
   }).join('');
   $('#jobs').querySelectorAll('li[data-id]').forEach(li => li.onclick = () => open(li.dataset.id));
+  drawNav();
 }
+// 대조 모드는 작업 목록을 접으므로 위쪽에서 작업을 고른다. 넣은 차례(오래된 것부터)로 늘어놓는다
+function doneJobs() { return JOBS.filter(j => j.status === 'done').sort((a, b) => (a.created || 0) - (b.created || 0)); }
+function drawNav() {
+  if (!CMP) return;
+  const js = doneJobs(), left = js.filter(needs).length;
+  $('#cmpCount').textContent = js.length ? `확인 필요 ${left}건 남음` : '';
+  const tag = j => j.confirmed ? '' : j.auto === true ? ' (자동 통과)' : j.verdict === '빠진 줄 의심' ? ' (빠진 줄 의심)' : '';
+  $('#jobPick').innerHTML = (CUR && !js.some(j => j.id === CUR.id) ? '<option value="">작업 고르기</option>' : '') +
+    js.map(j => `<option value="${j.id}" ${CUR && CUR.id === j.id ? 'selected' : ''}>${j.confirmed ? '✓ ' : ''}${esc(j.title || (j.files || [])[0] || '올린 서류')}${tag(j)}</option>`).join('');
+}
+$('#jobPick').onchange = e => { if (e.target.value) open(e.target.value); };
+// 확정하면 다음으로 사람이 볼 작업을 연다. 자동 통과 작업은 건너뛴다
+function nextJob() {
+  const cur = JOBS.find(j => CUR && j.id === CUR.id), t = cur ? cur.created || 0 : 0;
+  const left = doneJobs().filter(j => needs(j) && (!CUR || j.id !== CUR.id));
+  return left.find(j => (j.created || 0) > t) || left[0];
+}
+function applyCmp() {
+  document.body.classList.toggle('cmp', CMP);
+  document.body.classList.toggle('calm', CMP && CALM);
+  $('#cmpBtn').textContent = CMP ? '대조 모드 끄기' : '대조 모드';
+  $('#allCols').textContent = ALL_COLS ? 'Main 칸만 보기' : '모든 열 보기';
+  $('#split').style.setProperty('--tw', TW + '%');
+  drawNav();
+}
+$('#cmpBtn').onclick = () => { CMP = !CMP; ALL_COLS = false; ZOOM = 1; LS.set('wuxi_cmp', CMP); applyCmp(); if (P) { PDF_FOR = null; drawResult(); } };
+$('#allCols').onclick = () => { ALL_COLS = !ALL_COLS; applyCmp(); if (P) drawTable(); };
 
 // ───────── 작업 열기
-function view(id) { ['vEmpty', 'vRun', 'vErr', 'vRes'].forEach(v => $('#' + v).hidden = v !== id); }
+function view(id) { ['vEmpty', 'vRun', 'vErr', 'vRes'].forEach(v => $('#' + v).hidden = v !== id); document.body.classList.toggle('res', id === 'vRes'); }
 async function open(id) {
   if (P && CUR && CUR.id !== id && unsaved() && !(await ask('고친 값이 있습니다', '엑셀을 받거나 확정하지 않고 다른 작업을 열면 고친 값이 사라집니다.', '다른 작업 열기'))) return;
   clearTimeout(POLL); location.hash = id; CUR = {id}; P = null; drawJobs(); await poll();
@@ -327,17 +439,25 @@ async function poll() {
   loadJobs();
   if (d.status === 'error') { view('vErr'); $('#errFiles').textContent = (d.files || []).join(', '); $('#errMsg').textContent = d.error || '알 수 없는 오류입니다.'; return; }
   P = d.payload; ORIG = JSON.parse(JSON.stringify(P.items)); DELETED = []; SEL = -1;
-  P.items.forEach((r, i) => r._i = i); SAVED = sig();
+  P.items.forEach((r, i) => r._i = i);
+  // 포장명세서에만 있는 줄은 표에서 뺀다. G-ERP 품목 줄은 인보이스 줄이고, 정답 93건에서 이런 줄 209줄 중 208줄을
+  // 사람이 지웠다(11/13). 남긴 한 줄은 인보이스 줄을 하나도 못 읽은 건이라, 인보이스 줄이 있을 때만 뺀다.
+  // 뺀 줄은 지운 줄과 같게 다룬다(최종 값에 _i 가 없으면 지운 줄). 빠짐 검사는 따로 돌므로 그대로다
+  ASIDE = P.items.some(r => r['출처'] !== 'PL') ? P.items.filter(r => r['출처'] === 'PL') : [];
+  if (ASIDE.length) P.items = P.items.filter(r => r['출처'] !== 'PL');
+  RESTORED = 0;
+  SAVED = sig();
   view('vRes'); drawResult();
 }
 
 // ───────── 결과
-function cols() { return P.cols.gerp.concat(P.cols.extra).filter(c => !HIDE_COLS.includes(c)); }
+function allCols() { return P.cols.gerp.concat(P.cols.extra).filter(c => !HIDE_COLS.includes(c)); }
+function cols() { const a = allCols(); return CMP && !ALL_COLS ? CMP_COLS.filter(c => a.includes(c)) : a; }
 function gapsOf(r) { return (P.required || []).filter(g => !g.some(c => String(r[c] == null ? '' : r[c]).trim())).map(g => g.join(' 또는 ')); }
 function dirtyCount() {
   if (!P) return 0;
-  let n = DELETED.length;
-  P.items.forEach(r => { if (r._i == null) n++; else cols().forEach(c => { if (String(r[c] ?? '') !== String(ORIG[r._i][c] ?? '')) n++; }); });
+  let n = DELETED.length + RESTORED;
+  P.items.forEach(r => { if (r._i == null) n++; else allCols().forEach(c => { if (String(r[c] ?? '') !== String(ORIG[r._i][c] ?? '')) n++; }); });
   return n;
 }
 function sig() { return P ? JSON.stringify([finalItems(), DELETED]) : ''; }
@@ -349,7 +469,7 @@ function drawResult() {
   const inv = (P.inv || []).length, rules = (P.rules || []).filter(r => r.line != null).length;
   $('#resMeta').textContent = [`품목 ${P.items.length}줄`, inv ? `인보이스 ${inv}장` : '', `파일 ${files.length}개`,
     CUR.wall ? `${CUR.wall}초` : '', rules ? `규칙으로 채운 칸 ${rules}개` : '', CUR.confirmed ? '확정함' : ''].filter(Boolean).join(' | ');
-  drawBanner(comp); drawTable(); drawExtras(); drawDirty();
+  drawBanner(comp); drawAside(); drawTable(); drawExtras(); drawDirty();
   $('#split').classList.toggle('nopdf', !SHOW_PDF); $('#ppane').hidden = !SHOW_PDF;
   if (SHOW_PDF) drawPdf();
 }
@@ -370,6 +490,10 @@ function drawBanner(c) {
       : `<div class="row"><button class="btn sm" type="button" data-rv="ok">원본과 대조했고 빠진 줄 없음</button><button class="btn sm" type="button" data-rv="missing">빠진 줄이 있어 더하겠습니다</button></div>`;
   }
   html += `<div class="checks">${chips}</div></div>`;
+  const tr = P.triage;
+  if (tr && !CUR.confirmed) html = (tr.auto
+    ? `<div class="note ok"><b>자동 통과입니다.</b> 빠진 줄 의심이 없고, 원본과 다르거나 비어 있는 확인할 칸이 없습니다. 원본 대조 없이 엑셀을 받아도 됩니다.</div>`
+    : `<div class="note warn"><b>사람이 확인할 작업입니다.</b> ${esc((tr.why || []).join(', '))}</div>`) + html;
   $('#banner').innerHTML = html;
   $('#banner').querySelectorAll('[data-rv]').forEach(b => b.onclick = async () => {
     try { await api(`api/jobs/${CUR.id}/review`, {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({result: b.dataset.rv})});
@@ -378,38 +502,117 @@ function drawBanner(c) {
     catch (e) { if (e.message !== 'login') toast(e.message, true); }
   });
 }
+function drawAside() {
+  const box = $('#aside');
+  if (!ASIDE.length) { box.innerHTML = ''; return; }
+  const code = r => r['Material'] || r['Vendor Part No.'] || '';
+  box.innerHTML = `<div class="note info"><details><summary><b>포장명세서에만 있는 줄 ${ASIDE.length}줄은 품목 표에서 뺐습니다.</b>
+    G-ERP 품목은 인보이스 줄입니다. 인보이스에 빠진 품목이면 표로 되돌리십시오.</summary>
+    <table><tbody>${ASIDE.map((r, k) => `<tr><td>${esc(r['Invoice No.'] || '')}</td><td>${esc(code(r))}</td><td>${esc(String(r['품명'] || '').slice(0, 60))}</td>
+      <td>${esc(r['B/L quantity'] ?? '')} ${esc(r['단위'] || '')}</td><td><button class="btn sm ghost" type="button" data-back="${k}">표로 되돌리기</button></td></tr>`).join('')}</tbody></table>
+    </details></div>`;
+  box.querySelectorAll('[data-back]').forEach(b => b.onclick = () => {
+    const r = ASIDE.splice(+b.dataset.back, 1)[0];
+    P.items.push(r); RESTORED++; drawAside(); drawTable(); drawDirty();
+    toast('표 맨 아래로 되돌렸습니다.');
+  });
+}
 function drawTable() {
   const cs = cols(), only = P.cols.gerp_only || [];
-  let h = '<thead><tr><th class="no">줄</th>' + cs.map(c => `<th>${esc(c)}</th>`).join('') + '</tr></thead><tbody>';
+  const label = c => (CMP && !ALL_COLS && CMP_LABEL[c]) || c;
+  let h = '<thead><tr><th class="no">줄</th>' + cs.map(c => `<th title="${esc(c)}">${esc(label(c))}</th>`).join('') + '</tr></thead><tbody>';
   P.items.forEach((r, k) => {
     const gaps = gapsOf(r), o = r._i == null ? null : ORIG[r._i], rl = r._rules || {};
-    h += `<tr data-k="${k}" class="${gaps.length ? 'gap' : ''} ${r._i == null ? 'added' : ''} ${k === SEL ? 'sel' : ''}" ${gaps.length ? `title="비어 있음: ${esc(gaps.join(', '))}"` : ''}>
-      <td class="no"><button class="del" type="button" data-del="${k}" aria-label="${k + 1}번째 줄 지우기" title="이 줄 지우기">×</button>${k + 1}</td>` + cs.map(c => {
-        const v = r[c] == null ? '' : r[c];
-        const cls = [only.includes(c) ? 'gerp' : '', o && String(v) !== String(o[c] ?? '') ? 'edited' : '', rl[c] ? 'ruled' : ''].filter(Boolean).join(' ');
-        return `<td class="${cls}" data-c="${esc(c)}" contenteditable="true" ${rl[c] ? 'title="운영 규칙으로 채운 값"' : ''}>${esc(v)}</td>`;
+    // 확인할 칸이 없고 고친 칸도 없는 줄. 대조 모드에서 접는다. 사람이 더한 줄과 PL 줄은 접지 않는다
+    const calm = CMP && !ALL_COLS && o && r['출처'] !== 'PL'
+      && cs.every(c => { const v = r[c] == null ? '' : r[c]; return String(v) === String(o[c] ?? '') && !flagged(r, c); });
+    h += `<tr data-k="${k}" class="${gaps.length ? 'gap' : ''} ${r._i == null ? 'added' : ''} ${k === SEL ? 'sel' : ''} ${calm ? 'calm' : ''}" ${gaps.length ? `title="비어 있음: ${esc(gaps.join(', '))}"` : ''}>
+      <td class="no"><button class="del" type="button" data-del="${k}" aria-label="${k + 1}번째 줄 지우기" title="이 줄 지우기">×</button>${k + 1}${CMP && !ALL_COLS && r['출처'] === 'PL' ? '<span class="pl" title="포장명세서에만 있는 줄">PL</span>' : ''}</td>` + cs.map(c => {
+        const v = r[c] == null ? '' : r[c], ed = o && String(v) !== String(o[c] ?? '');
+        const ck = CMP && !ed ? ckClass(r, c) : null;
+        const cls = [only.includes(c) ? 'gerp' : '', ed ? 'edited' : '', rl[c] ? 'ruled' : '', ck ? ck[0] : ''].filter(Boolean).join(' ');
+        const tip = ck ? ck[1] : (rl[c] ? '운영 규칙으로 채운 값' : '');
+        return `<td class="${cls}" data-c="${esc(c)}" contenteditable="true"${ck && ck[2] ? ` data-hint="${esc(ck[2])}"` : ''}${tip ? ` title="${esc(tip)}"` : ''}>${esc(v)}</td>`;
       }).join('') + '</tr>';
   });
   $('#items').innerHTML = h + '</tbody>';
+  const rows = $('#items').querySelectorAll('tr[data-k]');
+  if (rows.length && [...rows].every(t => t.classList.contains('calm')))
+    $('#items tbody').insertAdjacentHTML('beforeend', `<tr class="calmnote"><td colspan="${cs.length + 1}" class="muted">모든 줄이 원본과 맞아 접었습니다. 펼쳐 보려면 위의 「모든 줄 보기」를 누르십시오.</td></tr>`);
   $('#items').querySelectorAll('td[contenteditable]').forEach(td => {
+    td.addEventListener('dblclick', () => {     // 원본에 있는 값을 두 번 눌러 채운다
+      if (td.dataset.hint && !td.textContent.trim()) { td.textContent = td.dataset.hint; td.dispatchEvent(new Event('input')); }
+    });
     td.addEventListener('input', () => {
       const k = +td.parentNode.dataset.k, r = P.items[k], c = td.dataset.c; r[c] = td.textContent.trim();
       const o = r._i == null ? null : ORIG[r._i];
       td.classList.toggle('edited', !!o && String(r[c]) !== String(o[c] ?? ''));
+      if (td.classList.contains('edited')) { td.classList.remove('ck-miss', 'ck-unk', 'ck-hint', 'ck-blank'); td.removeAttribute('title'); }
+      drawCk();
       const g = gapsOf(r); td.parentNode.classList.toggle('gap', !!g.length); drawDirty();
     });
-    td.addEventListener('focus', () => select(+td.parentNode.dataset.k));
-    td.addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); td.blur(); } });
+    td.addEventListener('focus', () => select(+td.parentNode.dataset.k, td.dataset.c));
+    td.addEventListener('keydown', e => {
+      if (e.key !== 'Enter') return;
+      e.preventDefault();
+      if (CMP) {     // 대조 모드에서는 Enter 로 아래 줄의 같은 칸으로 간다
+        const tr = td.parentNode.nextElementSibling, nx = tr && tr.querySelector(`td[data-c="${CSS.escape(td.dataset.c)}"]`);
+        if (nx) { nx.focus(); return; }
+      }
+      td.blur();
+    });
   });
   $('#items').querySelectorAll('[data-del]').forEach(b => b.onclick = e => { e.stopPropagation(); delRow(+b.dataset.del); });
+  drawCk();
   $('#items').querySelectorAll('tr[data-k]').forEach(tr => tr.addEventListener('click', () => select(+tr.dataset.k)));
+}
+// ───────── 원문 대조 표시(대조 모드). 서버가 칸마다 원본 글자층과 맞춰 본 결과(_ok, _hint)를 그린다
+// 사람이 볼 칸: 원본에서 못 찾은 칸, 비었는데 원본 같은 줄에 값이 있는 칸, 비어 있는 Material 과 PO 칸.
+// 원본과 같은 칸과 스캔이라 확인할 수 없는 칸은 넘긴다. 정답 93건에서 정답과 다른 비율이 0.6% 와 0% 였다(11/13)
+function ckClass(r, c) {
+  const s = (r._ok || {})[c], h = (r._hint || {})[c], v = String(r[c] == null ? '' : r[c]).trim();
+  if (s === 'miss') return ['ck-miss', '원본 글자에서 같은 값을 찾지 못했습니다. 원본과 대조해 주십시오'];
+  if (s === '-' && h) return ['ck-hint', `원본의 같은 줄에 ${h} 값이 있습니다. 두 번 누르면 채웁니다`, h];
+  // none: 원본 어디에도 그 모양의 값이 없는 빈 칸(서버 cell_check._mark_blank_none). 사람이 채울 값이 없어 확인할 칸에서 뺀다
+  if (!v && BLANK_FLAG.includes(c) && s !== 'none') return ['ck-blank', '비어 있습니다. 원본에 값이 있는지 보십시오'];
+  if (s === '?') return ['ck-unk', '원본 글자로 확인할 수 없습니다(스캔 서류 등)'];
+  return null;
+}
+function flagged(r, c) { const k = ckClass(r, c); return !!k && k[0] !== 'ck-unk'; }
+function ckCells() {
+  if (!CMP || !P) return [];
+  return [...$('#items').querySelectorAll('td.ck-miss, td.ck-hint, td.ck-blank')];
+}
+function drawCk() {
+  const bar = $('#ckbar'); if (!bar || !P) return;
+  if (!P.cellcheck) { bar.innerHTML = '<span class="muted">원문 대조 결과가 없습니다. 새로 고침하면 대조합니다.</span>'; return; }
+  let miss = 0, hint = 0, blank = 0, ok = 0;
+  ckCells().forEach(td => { if (td.classList.contains('ck-miss')) miss++; else if (td.classList.contains('ck-hint')) hint++; else blank++; });
+  P.items.forEach(r => cols().forEach(c => { if ((r._ok || {})[c] === 'ok') ok++; }));
+  const unk = $('#items').querySelectorAll('td.ck-unk').length, left = miss + hint + blank;
+  const hid = $('#items').querySelectorAll('tr.calm').length;
+  bar.innerHTML = `<b>확인할 칸 ${left}칸</b>`
+    + `<span><i class="k" style="box-shadow:inset 0 0 0 2px var(--bad);background:var(--bad-soft)"></i>빈 Material, PO ${blank}칸</span>`
+    + `<span><i class="k" style="box-shadow:inset 0 0 0 2px #e0a020;background:#fff7e3"></i>원본에서 못 찾음 ${miss}칸</span>`
+    + `<span><i class="k" style="box-shadow:inset 0 0 0 2px #e9c46a"></i>원본에 값 있음 ${hint}칸</span>`
+    + `<span class="muted">원본과 같음 ${ok}칸${unk ? `, 스캔이라 대조 못 함 ${unk}칸` : ''}</span>`
+    + (left ? `<button class="btn sm" type="button" id="ckNext">확인할 칸으로 가기</button>` : '<span>확인할 칸이 없습니다. 확정하셔도 됩니다.</span>')
+    + (hid || !CALM ? `<button class="btn sm ghost" type="button" id="calmBtn">${CALM ? `모든 줄 보기(${hid}줄 접힘)` : '확인할 줄만 보기'}</button>` : '');
+  const cb = $('#calmBtn');
+  if (cb) cb.onclick = () => { CALM = !CALM; LS.set('wuxi_calm', CALM); applyCmp(); drawCk(); };
+  const b = $('#ckNext');
+  if (b) b.onclick = () => {
+    const cells = ckCells(), cur = document.activeElement, i = cells.indexOf(cur);
+    const nx = cells[(i + 1) % cells.length]; if (!nx) return;
+    nx.focus(); nx.scrollIntoView({block: 'center', inline: 'nearest'});
+  };
 }
 function delRow(k) {
   const r = P.items[k]; if (r._i != null) DELETED.push(r._i);
   P.items.splice(k, 1); SEL = -1; drawTable(); drawDirty(); toast(`${k + 1}번째 줄을 지웠습니다.`);
 }
 $('#addRow').onclick = () => {
-  const row = {}; cols().forEach(c => row[c] = ''); const at = SEL >= 0 ? SEL + 1 : P.items.length;
+  const row = {}; allCols().forEach(c => row[c] = ''); const at = SEL >= 0 ? SEL + 1 : P.items.length;
   P.items.splice(at, 0, row); SEL = at; drawTable(); drawDirty();
   const td = $('#items').querySelector(`tr[data-k="${at}"] td[contenteditable]`); if (td) td.focus();
 };
@@ -426,42 +629,138 @@ function drawExtras() {
 $('#togglePdf').onclick = () => { SHOW_PDF = !SHOW_PDF; $('#togglePdf').textContent = SHOW_PDF ? '원본 숨기기' : '원본 보기'; drawResult(); };
 
 // ───────── 원본
-let PDFJS = null;
+// 쪽마다 원본 칸 폭에 맞춘 그림(lo)을 한 번 그린다. 확대는 쪽 폭만 바꿔 바로 보이게 하고, 손을 멈추면 화면에
+// 보이는 쪽만 선명한 그림(hi)을 덧그린다. 모든 쪽을 크게 그리면 쪽이 많은 서류에서 메모리가 모자란다.
+let PDFJS = null, PAGES = [], SHARP = 0, SHARP_T = null, DRAW = 0;     // DRAW: 그리는 차례. 새로 그리기 시작하면 앞 차례는 멈춘다
+const HI_MAX = 4096;                                        // 선명한 그림의 가장 큰 폭(px). 넘으면 늘려 보인다
+const baseW = () => Math.max(320, $('#pdf').clientWidth || 420);
 async function drawPdf() {
   if (PDF_FOR === CUR.id) return; PDF_FOR = CUR.id;
-  const box = $('#pdf'); box.innerHTML = '<p class="small muted">원본을 그리는 중입니다.</p>';
+  const box = $('#pdf'), gen = ++DRAW; box.innerHTML = '<p class="small muted">원본을 그리는 중입니다.</p>'; PAGES = []; SHARP++;
   try { if (!PDFJS) { PDFJS = await import(ROOT + 'static/pdf.min.mjs'); PDFJS.GlobalWorkerOptions.workerSrc = ROOT + 'static/pdf.worker.min.mjs'; } }
   catch (e) { box.innerHTML = '<p class="small muted">원본 보기 도구를 불러오지 못했습니다.</p>'; return; }
-  const files = CUR.files || [], id = CUR.id; let pages = 0; box.innerHTML = '';
+  if (gen !== DRAW) return;
+  const files = CUR.files || [], id = CUR.id; box.innerHTML = '';
   for (let di = 0; di < files.length; di++) {
-    let doc; try { doc = await PDFJS.getDocument(ROOT + `api/jobs/${id}/pdf/${di}`).promise; } catch (e) { continue; }
+    // 글꼴을 심지 않은 PDF(SK HYNIX 충칭 인보이스의 STSong-Light 등)는 글꼴 표(cmaps)가 있어야 글자가 그려진다
+    let doc; try { doc = await PDFJS.getDocument({url: ROOT + `api/jobs/${id}/pdf/${di}`, cMapUrl: ROOT + 'static/cmaps/', cMapPacked: true,
+                                                   standardFontDataUrl: ROOT + 'static/standard_fonts/'}).promise; } catch (e) { continue; }
     for (let pn = 1; pn <= doc.numPages; pn++) {
-      if (PDF_FOR !== id) return;
-      const page = await doc.getPage(pn), w = Math.max(320, box.clientWidth || 420), vp0 = page.getViewport({scale: 1});
-      const vp = page.getViewport({scale: (w / vp0.width) * (window.devicePixelRatio || 1)});
+      if (gen !== DRAW || PDF_FOR !== id) return;            // 다른 작업으로 옮겼거나 같은 작업을 다시 그리기 시작했으면 쪽이 겹치지 않게 멈춘다
+      const page = await doc.getPage(pn), vp0 = page.getViewport({scale: 1});
+      if (gen !== DRAW) return;
+      const vp = page.getViewport({scale: (baseW() / vp0.width) * (window.devicePixelRatio || 1)});
       const wrap = document.createElement('div'); wrap.className = 'pg'; wrap.id = `pg-${di}-${pn}`;
+      if (ZOOM !== 1) wrap.style.width = baseW() * ZOOM + 'px';     // 확대하면 원본 칸 안에서 옆으로 밀어 본다
       const cv = document.createElement('canvas'); cv.width = vp.width; cv.height = vp.height; wrap.appendChild(cv);
       const lb = document.createElement('span'); lb.className = 'lbl'; lb.textContent = `${files[di]} ${pn}쪽`; wrap.appendChild(lb);
-      box.appendChild(wrap); await page.render({canvasContext: cv.getContext('2d'), viewport: vp}).promise; pages++;
+      box.appendChild(wrap); PAGES.push({id, wrap, page, lo: cv, hi: null});
+      await page.render({canvasContext: cv.getContext('2d'), viewport: vp}).promise;
     }
   }
-  $('#pdfInfo').textContent = `${files.length}개 파일, ${pages}쪽`;
+  if (gen !== DRAW) return;
+  zoomInfo(); if (ZOOM > 1) sharpen();
   if (SEL >= 0) mark(SEL);
 }
-function select(k) {
-  if (SEL === k) return; SEL = k;
-  $('#items').querySelectorAll('tr').forEach(t => t.classList.toggle('sel', +t.dataset.k === k)); mark(k);
+function zoomInfo() {
+  $('#ppane').classList.toggle('zoomed', ZOOM > 1);
+  if (!CUR) return;
+  $('#pdfInfo').textContent = `${(CUR.files || []).length}개 파일, ${PAGES.length}쪽` + (ZOOM !== 1 ? `, ${Math.round(ZOOM * 100)}%` : '');
 }
-function mark(k) {
-  document.querySelectorAll('.hl').forEach(e => e.remove());
-  const r = P.items[k]; if (!r) return; let first = null;
-  (r._hl || []).forEach(([di, pn, x0, y0, x1, y1]) => {
-    const wrap = document.getElementById(`pg-${di}-${pn}`), sz = (P.sizes[di] || [])[pn - 1]; if (!wrap || !sz) return;
-    const s = wrap.clientWidth / sz[0], e = document.createElement('div'); e.className = 'hl';
-    e.style.cssText = `left:${x0 * s - 3}px;top:${y0 * s - 3}px;width:${(x1 - x0) * s + 6}px;height:${(y1 - y0) * s + 6}px`;
-    wrap.appendChild(e); first = first || e;
+// ax, ay: 원본 칸 안에서 확대 뒤에도 같은 자리에 둘 점(마우스 자리). 그 점 아래 글자가 그대로 남는다
+function setZoom(z, ax, ay) {
+  z = Math.min(4, Math.max(0.5, Math.abs(z - 1) < 0.04 ? 1 : +z.toFixed(2)));
+  if (z === ZOOM || !PAGES.length) return;
+  // 쪽 사이 틈과 칸 머리는 커지지 않으므로, 점이 놓인 쪽 안에서의 비율을 지켜 다시 맞춘다
+  const pane = $('#ppane'), pr = pane.getBoundingClientRect(), px = pr.left + ax, py = pr.top + ay;
+  const at = PAGES.find(p => p.wrap.getBoundingClientRect().bottom > py) || PAGES[PAGES.length - 1];
+  const b0 = at.wrap.getBoundingClientRect(), fx = (px - b0.left) / b0.width, fy = (py - b0.top) / b0.height;
+  ZOOM = z; const w = baseW() * z;
+  PAGES.forEach(p => p.wrap.style.width = z === 1 ? '' : w + 'px');
+  const b1 = at.wrap.getBoundingClientRect();
+  pane.scrollLeft += b1.left + fx * b1.width - px; pane.scrollTop += b1.top + fy * b1.height - py;
+  if (SEL >= 0) mark(SEL, false);
+  zoomInfo(); clearTimeout(SHARP_T); SHARP_T = setTimeout(sharpen, 220);
+}
+async function sharpen() {
+  const gen = ++SHARP, dpr = window.devicePixelRatio || 1, pane = $('#ppane'), pr = pane.getBoundingClientRect();
+  for (const p of PAGES) {
+    if (gen !== SHARP || PDF_FOR !== p.id) return;
+    const r = p.wrap.getBoundingClientRect(), near = r.bottom > pr.top - pr.height && r.top < pr.bottom + pr.height;
+    const want = Math.min(HI_MAX, Math.round(p.wrap.clientWidth * dpr));
+    if (!near || want <= p.lo.width * 1.1) {                 // 멀리 있거나 기본 그림으로 충분하면 선명한 그림을 버린다
+      if (p.hi) { p.hi.remove(); p.hi = null; }
+      continue;
+    }
+    if (p.hi && Math.abs(p.hi.width - want) < 8) continue;
+    const vp0 = p.page.getViewport({scale: 1}), vp = p.page.getViewport({scale: want / vp0.width});
+    const cv = document.createElement('canvas'); cv.className = 'hi'; cv.width = vp.width; cv.height = vp.height;
+    await p.page.render({canvasContext: cv.getContext('2d'), viewport: vp}).promise;
+    if (gen !== SHARP) return;
+    if (p.hi) p.hi.remove();
+    p.lo.after(cv); p.hi = cv;                               // 기본 그림 바로 위, 쪽 이름표와 표시 상자 아래
+  }
+}
+document.querySelectorAll('[data-zoom]').forEach(b => b.onclick = () => {
+  const d = +b.dataset.zoom, pane = $('#ppane');
+  setZoom(d === 0 ? 1 : ZOOM + d * 0.25, pane.clientWidth / 2, pane.clientHeight / 2);
+  if (d === 0) pane.scrollLeft = 0;
+});
+// 원본 위에서 Ctrl 을 누른 채 휠을 돌리면 마우스 자리를 중심으로 확대, 축소한다(노트북 터치패드 오므리기도 같다).
+// 확대한 동안에는 원본을 끌어 옮길 수 있다.
+(() => {
+  const pane = $('#ppane'); let drag = null;
+  pane.addEventListener('wheel', e => {
+    if (!(e.ctrlKey || e.metaKey) || !PAGES.length) return;
+    e.preventDefault();                                     // 브라우저 화면 전체 확대를 막는다
+    const r = pane.getBoundingClientRect(), dy = e.deltaY * (e.deltaMode === 1 ? 33 : 1);
+    setZoom(ZOOM * Math.exp(-dy * 0.0015), e.clientX - r.left, e.clientY - r.top);
+  }, {passive: false});
+  pane.addEventListener('scroll', () => { if (ZOOM > 1) { clearTimeout(SHARP_T); SHARP_T = setTimeout(sharpen, 220); } }, {passive: true});
+  pane.addEventListener('pointerdown', e => {
+    if (ZOOM <= 1 || e.button !== 0 || !e.target.closest('.pg')) return;
+    drag = {x: e.clientX, y: e.clientY, l: pane.scrollLeft, t: pane.scrollTop}; pane.setPointerCapture(e.pointerId); pane.classList.add('panning');
   });
-  if (first) { const pane = $('#ppane'); pane.scrollTo({top: first.offsetTop + first.parentNode.offsetTop - pane.clientHeight / 3, behavior: 'smooth'}); }
+  pane.addEventListener('pointermove', e => { if (drag) { pane.scrollLeft = drag.l - (e.clientX - drag.x); pane.scrollTop = drag.t - (e.clientY - drag.y); } });
+  const up = () => { drag = null; pane.classList.remove('panning'); };
+  pane.addEventListener('pointerup', up); pane.addEventListener('pointercancel', up);
+})();
+// 표와 원본 사이 경계선을 끌어 너비를 바꾼다. 키보드는 왼쪽, 오른쪽 화살표
+(() => {
+  const dv = $('#divider'), sp = $('#split'); let on = false;
+  const setTw = v => { TW = Math.min(80, Math.max(25, v)); sp.style.setProperty('--tw', TW.toFixed(1) + '%'); };
+  const done = () => { LS.set('wuxi_tw', +TW.toFixed(1)); if (SEL >= 0) mark(SEL); };
+  dv.addEventListener('pointerdown', e => { on = true; dv.setPointerCapture(e.pointerId); dv.classList.add('drag'); document.body.classList.add('dragging'); });
+  dv.addEventListener('pointermove', e => { if (on) { const r = sp.getBoundingClientRect(); setTw((e.clientX - r.left) / r.width * 100); } });
+  const up = () => { if (!on) return; on = false; dv.classList.remove('drag'); document.body.classList.remove('dragging'); done(); };
+  dv.addEventListener('pointerup', up); dv.addEventListener('pointercancel', up);
+  dv.addEventListener('keydown', e => { if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') { e.preventDefault(); setTw(TW + (e.key === 'ArrowLeft' ? -3 : 3)); done(); } });
+})();
+let SEL_COL = null;      // 고른 칸. 원본에서 그 칸의 자리를 진하게 그린다
+function select(k, c) {
+  if (SEL === k && (c === undefined || c === SEL_COL)) return;
+  const moved = SEL !== k; SEL = k; if (c !== undefined) SEL_COL = c;
+  $('#items').querySelectorAll('tr').forEach(t => t.classList.toggle('sel', +t.dataset.k === k));
+  mark(k, true, moved);
+}
+// 줄을 고르면 그 줄에서 읽은 칸이 원본 어디에 찍혀 있는지 상자로 그린다(cell_check 가 붙인 _at). 고른 칸은 진하게.
+// 자리를 못 찾은 칸(스캔, 원본에 없는 값)은 상자가 없다. 엉뚱한 곳을 가리키느니 비운다
+function mark(k, scroll = true, toRow = true) {     // scroll: 원본을 상자로 옮긴다. toRow: 고른 칸이 없으면 줄 첫 상자로
+  document.querySelectorAll('.hl').forEach(e => e.remove());
+  const r = P.items[k]; if (!r) return; let first = null, on = null;
+  const at = r._at || {}, boxes = Object.keys(at).length ? Object.entries(at) : (r._hl || []).map(b => [null, b]);
+  const seen = new Set();
+  boxes.forEach(([c, b]) => {
+    const [di, pn, x0, y0, x1, y1] = b, key = b.join(','), hot = c && c === SEL_COL;
+    if (seen.has(key) && !hot) return; seen.add(key);
+    const wrap = document.getElementById(`pg-${di}-${pn}`), sz = (P.sizes[di] || [])[pn - 1]; if (!wrap || !sz) return;
+    const s = wrap.clientWidth / sz[0], e = document.createElement('div'); e.className = 'hl' + (hot ? ' on' : '');
+    e.style.cssText = `left:${x0 * s - 3}px;top:${y0 * s - 3}px;width:${(x1 - x0) * s + 6}px;height:${(y1 - y0) * s + 6}px`;
+    if (c) e.title = (CMP_LABEL[c] || c);
+    wrap.appendChild(e); first = first || e; if (hot) on = e;
+  });
+  first = on || (toRow ? first : null);
+  if (first && scroll) { const pane = $('#ppane'); pane.scrollTo({top: first.offsetTop + first.parentNode.offsetTop - pane.clientHeight / 3, behavior: 'smooth'}); }
 }
 
 // ───────── 엑셀, 확정, 다시 읽기, 지우기
@@ -480,7 +779,10 @@ $('#xlsxBtn').onclick = async () => {
 $('#confirmBtn').onclick = async () => {
   if (!(await ask('이 값으로 확정합니다', '확정한 값은 운영 쪽에서 정답 자료로 씁니다. 확정한 뒤에도 고쳐서 다시 확정할 수 있습니다.', '확정'))) return;
   try { await api(`api/jobs/${CUR.id}/confirm`, {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({items: finalItems()})});
-        CUR.confirmed = Date.now() / 1000; SAVED = sig(); drawResult(); loadJobs(); toast('확정했습니다.'); }
+        CUR.confirmed = Date.now() / 1000; SAVED = sig(); drawResult(); await loadJobs();
+        const nx = CMP ? nextJob() : null;      // 대조 모드에서는 아직 확정하지 않은 다음 작업을 연다
+        if (nx) { toast('확정했습니다. 다음 작업을 엽니다.'); open(nx.id); }
+        else toast(CMP ? '확정했습니다. 확정하지 않은 작업이 더 없습니다.' : '확정했습니다.'); }
   catch (e) { if (e.message !== 'login') toast(e.message, true); }
 };
 document.querySelectorAll('[data-act]').forEach(b => b.onclick = async () => {
@@ -494,6 +796,7 @@ document.querySelectorAll('[data-act]').forEach(b => b.onclick = async () => {
   }
 });
 window.addEventListener('beforeunload', e => { if (unsaved()) { e.preventDefault(); e.returnValue = ''; } });
+applyCmp();
 boot();
 </script>
 </body>

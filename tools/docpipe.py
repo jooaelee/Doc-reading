@@ -1166,7 +1166,12 @@ WAIT_RESULT = os.environ.get("DOCPIPE_WAIT_RESULT", "") == "1"
 OCR_ENGINE = os.environ.get("DOCPIPE_OCR_ENGINE", "").strip().lower()
 # rapid 는 한 쪽에 1~3초가 든다. 쪽 종류와 B/L 번호는 윗부분에 찍히므로 위쪽만 읽어 시간을 줄일 수 있다(1.0 이면 전체).
 OCR_CROP = float(os.environ.get("DOCPIPE_OCR_CROP", "1.0"))
-OCR_WORKERS = int(os.environ.get("DOCPIPE_OCR_WORKERS", str(max(1, min(8, (os.cpu_count() or 2) // 2)))))
+# 🔴 일꾼 수와 일꾼마다 스레드 수. 예전에는 코어 절반만큼 일꾼을 띄우고 일꾼마다 스레드 하나였다(16코어면 8x1).
+#    한 건의 스캔 쪽은 대개 1~4쪽이라 일꾼 8개 중 넷은 놀고, 한 쪽을 스레드 하나로 읽어 4쪽에 25~28초가 들었다.
+#    일꾼 4개에 스레드 3개씩이면 4쪽이 13~14초, 16쪽은 그대로 50초 안팎이다(11/15, i5-1340P 노트북에서 번갈아 잼).
+_CPU = os.cpu_count() or 2
+OCR_WORKERS = int(os.environ.get("DOCPIPE_OCR_WORKERS", str(max(1, min(8, _CPU // 4)))))
+OCR_THREADS = int(os.environ.get("DOCPIPE_OCR_THREADS", str(max(1, min(4, (_CPU * 3 // 4) // OCR_WORKERS)))))
 _RAPID_POOL = None
 
 
@@ -1200,23 +1205,45 @@ _rapid_eng = None
 _rapid_v3 = False
 
 
+def no_power_throttle() -> bool:
+    """Windows 가 이 프로세스를 「효율 모드」로 늦추지 않게 한다(배터리로 도는 노트북에서 OCR 이 서너 배 느려짐, 11/15).
+    시스템 설정이 아니라 이 프로세스에만 거는 표시다. DOCPIPE_NO_THROTTLE=0 이면 안 건다."""
+    if sys.platform != "win32" or os.environ.get("DOCPIPE_NO_THROTTLE", "1") == "0":
+        return False
+    try:
+        import ctypes
+        from ctypes import wintypes
+
+        class _PPT(ctypes.Structure):
+            _fields_ = [("Version", wintypes.ULONG), ("ControlMask", wintypes.ULONG), ("StateMask", wintypes.ULONG)]
+        st = _PPT(1, 0x1, 0)            # EXECUTION_SPEED 를 다루되 끈다
+        k = ctypes.WinDLL("kernel32", use_last_error=True)
+        k.GetCurrentProcess.restype = wintypes.HANDLE
+        k.SetProcessInformation.argtypes = [wintypes.HANDLE, ctypes.c_int, ctypes.c_void_p, wintypes.DWORD]
+        k.SetProcessInformation.restype = wintypes.BOOL
+        return bool(k.SetProcessInformation(k.GetCurrentProcess(), 4, ctypes.byref(st), ctypes.sizeof(st)))  # ProcessPowerThrottling
+    except Exception:
+        return False
+
+
 def _rapid_init():
     """RapidOCR 를 띄운다. 파이썬 3.12 까지는 rapidocr_onnxruntime(1.x), 3.13 부터는 rapidocr(3.x) 를 쓴다.
 
     두 판은 부르는 법과 돌려주는 꼴이 다르다. 1.x 는 ([상자, 글, 점수], 시간), 3.x 는 boxes, txts, scores 를 가진 객체다.
     """
     global _rapid_eng, _rapid_v3
-    os.environ["OMP_NUM_THREADS"] = "1"
+    no_power_throttle()
+    os.environ["OMP_NUM_THREADS"] = str(OCR_THREADS)
     try:
         from rapidocr_onnxruntime import RapidOCR
-        _rapid_eng = RapidOCR(intra_op_num_threads=1, inter_op_num_threads=1)
+        _rapid_eng = RapidOCR(intra_op_num_threads=OCR_THREADS, inter_op_num_threads=1)
         _rapid_v3 = False
     except ImportError:
         import logging
         from rapidocr import RapidOCR
         logging.getLogger("RapidOCR").setLevel(logging.WARNING)
         _rapid_eng = RapidOCR(params={"Global.use_cls": False, "Global.log_level": "warning",
-                                      "EngineConfig.onnxruntime.intra_op_num_threads": 1,
+                                      "EngineConfig.onnxruntime.intra_op_num_threads": OCR_THREADS,
                                       "EngineConfig.onnxruntime.inter_op_num_threads": 1})
         _rapid_v3 = True
 
@@ -2684,6 +2711,51 @@ def _dedupe_h1(ex):
     return ex
 
 
+def price_twins(lines, total, qty="qty", amount="amount", codes=_CODE_PAIR):
+    """한 인보이스의 줄 목록이 같은 줄을 금액만 다르게 두 번 담았으면, 총액에 안 맞는 쪽 줄 번호를 낸다. 아니면 빈 목록.
+
+    수리 인보이스는 같은 품목을 「No Commercial Value」 값과 「Repair Charge」 값으로 두 번 찍는다(PNS26081814: 27줄씩,
+    합 117,913.71 과 44,189.20, 총액 44,189.20). 앞뒤 반(표 둘)이나 번갈아(줄마다 두 값) 담긴다.
+    🔴 두 쪽이 차례마다 코드와 수량이 같아야 하고(같은 줄), 한쪽 금액 합만 총액과 맞아야 뺀다. 그렇지 않으면 아무것도
+       빼지 않는다(서로 다른 줄일 수 있음). 줄 금액이 하나라도 비면 따지지 않는다.
+    """
+    n = len(lines)
+    if n < 2 or n % 2 or not total:
+        return []
+    amts = [num(l.get(amount)) for l in lines]
+    if any(a is None for a in amts) or close(sum(amts), total):
+        return []
+
+    def twin(a, b):
+        """0 같은 줄, 1 수량은 같고 코드만 다름, 2 다른 줄."""
+        if num(a.get(qty)) != num(b.get(qty)):
+            return 2
+        ca = {_norm_code(a.get(k)) for k in codes if a.get(k) not in (None, "")}
+        cb = {_norm_code(b.get(k)) for k in codes if b.get(k) not in (None, "")}
+        return 0 if (ca & cb if ca and cb else not ca and not cb) else 1
+
+    h = n // 2
+    for first, second in ((list(range(h)), list(range(h, n))), (list(range(0, n, 2)), list(range(1, n, 2)))):
+        t = [twin(lines[i], lines[j]) for i, j in zip(first, second)]
+        # 스캔 사본은 코드 한 글자를 잘못 읽는다(PNS26081814 의 MMF07202 와 MMF07366). 세 줄 넘는 목록에서 한 줄까지 봐준다
+        if 2 in t or t.count(1) > (1 if h >= 3 else 0):
+            continue
+        s1, s2 = sum(amts[i] for i in first), sum(amts[i] for i in second)
+        if close(s1, total) and not close(s2, total):
+            return second
+        if close(s2, total) and not close(s1, total):
+            return first
+        # 어느 쪽도 총액과 꼭 맞지 않을 때(판독이 Total Amount 를 총액으로 받고 줄 하나를 조금 다르게 읽음,
+        # PNS26081814 는 39,102.91 과 123,000, 총액 44,189.20). 한쪽만 총액을 넘으면 넘는 쪽은 그 인보이스의 줄일 수
+        # 없다. 남은 쪽도 총액과 안 맞으므로 빠짐 검사(금액 합)는 그대로 「빠진 줄 의심」을 띄운다
+        over = 1.01 * total
+        if s2 > over >= s1:
+            return second
+        if s1 > over >= s2:
+            return first
+    return []
+
+
 def postprocess(ex, customer=None):
     """모델 출력을 verify() 가 읽는 꼴로 다듬는다. 값을 바꾸지 않고 꼴만 바꾼다."""
     ex = _dedupe_h1(dict(ex))
@@ -2758,6 +2830,18 @@ def postprocess(ex, customer=None):
             for part in (lines[h:], lines[:h]):
                 if close(sum(num(l.get("amount")) for l in part), tot):
                     ex["ci_lines"] = part; ex["ci_lines_dropped"] = h; break
+    # 하이닉스 판은 총액을 인보이스마다 invoice_totals 로 받는다. 같은 규칙을 인보이스별로 건다(PNS26081814, 11/12)
+    tots = {_norm_code(t.get("invoice_no")): num(t.get("total")) for t in ex.get("invoice_totals") or []
+            if isinstance(t, dict) and t.get("invoice_no") and num(t.get("total"))}
+    if tots and ex.get("ci_lines"):
+        drop = set()
+        for inv, tot in tots.items():
+            idx = [i for i, l in enumerate(ex["ci_lines"]) if isinstance(l, dict)
+                   and (_norm_code(l.get("invoice_no")) == inv or (len(tots) == 1 and not l.get("invoice_no")))]
+            drop |= {idx[i] for i in price_twins([ex["ci_lines"][i] for i in idx], tot)}
+        if drop:
+            ex["ci_lines"] = [l for i, l in enumerate(ex["ci_lines"]) if i not in drop]
+            ex["ci_lines_dropped"] = (ex.get("ci_lines_dropped") or 0) + len(drop)
     lca = ex.get("lca_lines") or []
     fixed = 0
     for ln in lca:   # "54.540" 처럼 점이 천 단위 구분자인 값. 환율 곱으로 알아내 1000배로 고친다
@@ -2935,6 +3019,26 @@ def load_code_lists(path):
             lists.setdefault(cur, set()).add(str(code).strip())
     return lists
 
+def _flight_split_in_text(v, pages) -> bool:
+    """편명(LH687)이 운송장에 항공사 코드와 편 번호로 나뉘어 찍혔나.
+
+    AWB 는 「By First Carrier」 칸에 LH, 「Requested Flight/Date」 칸에 687/21.02 를 따로 찍는다(ORI07793063,
+    11/11). 둘 사이에 다른 칸 글자가 끼어 LH687 이 붙어 나오지 않는다. 지어낸 편명을 잡는 검사이므로 느슨하게
+    하지 않는다. 같은 쪽 안에 코드가 낱말로, 번호가 다른 숫자에 붙지 않은 채로 둘 다 있어야 한다.
+    """
+    m = re.fullmatch(r"\s*([A-Z0-9]{2})\s*-?\s*0*(\d{1,4})[A-Z]?\s*", str(v or "").upper())
+    if not m:
+        return False
+    code, num = m.groups()
+    if not re.search(r"[A-Z]", code):
+        return False
+    for p in pages:
+        t = (p.text + ("\n" + p.ocr if getattr(p, "ocr", "") else "")).upper()
+        if re.search(rf"(?<![A-Z0-9]){code}(?![A-Z0-9])", t) and re.search(rf"(?<![\d.,])0*{num}(?![\d]|[.,]\d)", t):
+            return True
+    return False
+
+
 def verify(ex: dict, pages, codes: dict):
     """ex: 모델이 낸 JSON. 반환: [(등급, 항목, 메시지)]  등급 ∈ OK / WARN / FAIL"""
     R = []
@@ -2961,6 +3065,8 @@ def verify(ex: dict, pages, codes: dict):
             if any(m.lower() in full.lower() for m in CURRENCY_MARKS[str(v)]): ok(k, f"원문에 있음: {v}"); continue
         if k == "mawb" and re.sub(r"\D", "", str(v)) in re.sub(r"\D", "", full):
             ok(k, f"원문에 있음: {v}"); continue      # 180 ICN 5410 2893 처럼 글자가 끼어 찍힌다
+        if k == "flight1" and _flight_split_in_text(v, pages):
+            ok(k, f"원문에 있음(항공사 코드와 편 번호가 따로 찍힘): {v}"); continue
         if re.sub(r"[\s,\-]", "", str(v)).lower() in flat: ok(k, f"원문에 있음: {v}")
         elif has_scan: warn(k, f"텍스트에 없음. 스캔 쪽에서 읽었을 수 있다: {v}")
         else: fail(k, f"원문에 없는 값: {v}")
@@ -3392,8 +3498,10 @@ def to_so_row(ex):
 # ---------- 실행 ----------
 def run(bundles, codes_xlsx, extractions=None, show=True, llm=None, model=None, anthropic=False, vision=False,
         truth=None, llm_key=None, upstage_ie=False, masters=None, customer=None, mail_values=None,
-        claude_cli=False, claude_bin="claude", claude_think=False, claude_config_dir=None, split=None):
-    """bundles: [(이름, [pdf 경로, ...]), ...]. llm 은 OpenAI 호환 /v1 주소, anthropic=True 면 Anthropic API."""
+        claude_cli=False, claude_bin="claude", claude_think=False, claude_config_dir=None, split=None, prepared=None):
+    """bundles: [(이름, [pdf 경로, ...]), ...]. llm 은 OpenAI 호환 /v1 주소, anthropic=True 면 Anthropic API.
+    prepared: {이름: 쪽들}. 부르는 쪽이 이미 쪽을 가르고 스캔 쪽을 OCR 해 두었으면 그 쪽들을 그대로 쓴다.
+    (그림 파일 page.png 를 지우는 것도 부르는 쪽 몫이다.)"""
     codes = load_code_lists(codes_xlsx) if codes_xlsx else {}
     masters = masters or {}
     if split is None: split = SPLIT
@@ -3401,9 +3509,15 @@ def run(bundles, codes_xlsx, extractions=None, show=True, llm=None, model=None, 
     extractions = dict(extractions or {})
     for name, paths in bundles:
         t0 = time.perf_counter()
-        pages = apply_awb_sort([classify(p) for path in paths for p in load_pdf(path)])
-        scan_dir = ocr_pages(pages)
-        route_scans(pages)
+        # 🔴 화면(wuxi_engine.read_bundle)은 공급사를 알아보려고 이미 쪽을 가르고 스캔 쪽을 OCR 했다. 여기서
+        #    다시 하면 같은 OCR 을 두 번 한다. 스캔 4쪽짜리 건에서 OCR 한 번에 20초쯤 들어 건당 시간의 3분의 1이
+        #    중복이었다(11/15). 받은 쪽이 있으면 그대로 쓴다. 결과는 같다(같은 파일, 같은 엔진, 같은 해상도).
+        if prepared and name in prepared:
+            pages, scan_dir = prepared[name], None
+        else:
+            pages = apply_awb_sort([classify(p) for path in paths for p in load_pdf(path)])
+            scan_dir = ocr_pages(pages)
+            route_scans(pages)
         t1 = time.perf_counter()
         sel = select_pages(pages)
         kept = set(id(p) for p in sel)
