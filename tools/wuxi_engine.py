@@ -237,8 +237,10 @@ def read_bundle(pdfs, name="올린 서류", on_step=None, model=None, claude_bin
             if llm.get("error"):
                 raise RuntimeError(llm["error"])
             ex = r.get("ex") or docpipe.postprocess(r.get("raw") or {})
-            if not supplier:
-                supplier = wuxi_rules.supplier_for(text, ex)
+            was = supplier
+            supplier = wuxi_rules.supplier_after_read(supplier, text, ex)
+            if was and supplier != was:
+                step(f"송하인을 보고 공급사를 다시 정함: {wuxi_rules.supplier_name(supplier)}", True, 0)
             all_text = _pages_text([p for p in pages if p.kind != "TERMS"], n=len(pages))
             po = header_po(ex, all_text)
             if po:

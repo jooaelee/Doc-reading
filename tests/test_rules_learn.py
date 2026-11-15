@@ -331,3 +331,29 @@ def test_확정은_정답_자료를_남긴다(home):
     job = job_of([{"Material": "A", "품명": "X"}])
     L.confirm(job, [{"Material": "A", "품명": "X", "_i": 0}])
     assert job["confirmed"] and os.path.isfile(os.path.join(wuxi_paths.WORK, "jobs", "a" * 32, "golden.json"))
+
+
+def test_서류_글에_찍힌_받는_쪽이_공급사로_잡히면_판독한_송하인으로_바로잡는다():
+    """10월 512건 중 210건이 받는 쪽 「SK HYNIX SEMICONDUCTOR (CHINA) LTD.」 로 묶였다(송하인은 제대로 읽혔음, 11/15)."""
+    buyer = R.save_supplier("SK HYNIX SEMICONDUCTOR (CHINA) LTD.", source="auto")["id"]
+    text = "COMMERCIAL INVOICE\nSOULBRAIN CO.,LTD.\nCONSIGNEE: SK HYNIX SEMICONDUCTOR (CHINA) LTD.\nWUXI"
+    pre = R.identify_supplier(text)
+    assert pre == buyer                                               # 글로만 고르면 받는 쪽이 이긴다
+    ex = {"shipper_name": "SOULBRAIN CO.,LTD.", "consignee_name": "SK HYNIX SEMICONDUCTOR (CHINA) LTD."}
+    sid = R.supplier_after_read(pre, text, ex)
+    assert sid != buyer and R.supplier_name(sid) == "SOULBRAIN CO.,LTD."
+    assert R.supplier_after_read(pre, text, ex) == sid                # 두 번째부터는 있는 공급사를 쓴다
+
+
+def test_송하인과_같은_공급사는_문장_부호가_달라도_찾는다():
+    sid = R.save_supplier("HAPPYNARAE CO.,LTD")["id"]
+    assert R.supplier_after_read(sid, "", {"shipper_name": "HAPPYNARAE CO,.LTD"}) == sid
+    assert len(R.suppliers()) == 1
+
+
+def test_송하인을_모르면_글로_고른_공급사를_그대로_둔다():
+    """글로 고른 공급사가 받는 쪽이 아니면 함부로 새 공급사를 만들지 않는다(송하인 자리에 운송사를 읽는 일이 있다)."""
+    sid = R.save_supplier("TEMC CO., LTD.")["id"]
+    ex = {"shipper_name": "FAST LOGISTICS", "consignee_name": "SK HYNIX SEMICONDUCTOR (CHINA) LTD."}
+    assert R.supplier_after_read(sid, "", ex) == sid
+    assert len(R.suppliers()) == 1

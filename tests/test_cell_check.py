@@ -272,3 +272,32 @@ def test_스캔_쪽_여럿은_엔진_OCR_일꾼으로_한꺼번에_읽어_둔다
     assert items[1]["_at"]["Material"][:2] == [0, 2]                 # 둘째 쪽의 자리
     cache = json.loads((tmp_path / "a.pdf.ocr.json").read_text(encoding="utf-8"))
     assert sorted(cache["pages"]) == ["1", "2"]                       # 다시 대조할 때는 OCR 하지 않는다
+
+
+def test_원본_어디에도_그_모양의_값이_없는_빈_Material_과_PO_는_사람이_보지_않는다():
+    """확정 정답 97건에서 빈 Material 70칸, 빈 PO 40칸은 사람도 비워 두었다. 사람이 채운 칸은 값이 모두 원본에 있었다(11/15)."""
+    items = [row(Material="", **{"Purchase Order": "", "품명": "CLEAN ROOM WIPER", "B/L quantity": 4, "Net Price": 2.5})]
+    check(items, ["1  CLEAN ROOM WIPER   4  EA  2.50   10.00   INVOICES ATTACHED"])
+    assert items[0]["_ok"]["Material"] == "none" and items[0]["_ok"]["Purchase Order"] == "none"
+    assert C.triage(items, "이상 없음")["auto"] is True
+
+
+def test_원본에_그_모양의_값이_있으면_빈_칸은_사람이_본다():
+    """줄 밖(머리, 다른 서류)에 찍힌 PO 와 Material 도 사람이 채울 수 있는 값이다(PNS26090822, FLUSA4221)."""
+    items = [row(Material="", **{"Purchase Order": "", "품명": "CLEAN ROOM WIPER", "B/L quantity": 4, "Net Price": 2.5})]
+    check(items, ["1  CLEAN ROOM WIPER   4  EA  2.50   10.00", "", "", "", "", "", "", "P/O NO. 4352 404751   Ref S31A0156"])
+    assert items[0]["_ok"]["Material"] == "-" and items[0]["_ok"]["Purchase Order"] == "-"   # 띄어 쓴 번호도 후보로 본다
+    assert "확인할 칸 2개" in C.triage(items, "이상 없음")["why"]
+
+
+def test_글을_못_본_쪽이_있으면_빈_칸은_사람이_본다():
+    """스캔 쪽을 OCR 하지 못했으면 원본에 값이 없다고 말할 수 없다."""
+    d = doc_with(["1  CLEAN ROOM WIPER   4  EA  2.50   10.00"])
+    d.new_page()                                                      # 글자층 없는 둘째 쪽
+    items = [row(Material="", **{"품명": "CLEAN ROOM WIPER", "B/L quantity": 4, "Net Price": 2.5})]
+    meta = META + [{"file": "a.pdf", "no": 2, "kind": "PL", "scan": True}]
+    try:
+        C.check_items(items, [("a.pdf", d)], meta, ocr=False)
+    finally:
+        d.close()
+    assert items[0]["_ok"]["Material"] == "-"

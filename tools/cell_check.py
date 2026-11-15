@@ -60,8 +60,8 @@ def _same_num(a: float, b: float) -> bool:
     return abs(a - b) <= max(0.005, abs(b) * 1e-6)
 
 
-VERSION = 4      # 바꾸면 이미 읽은 작업도 다시 대조한다(wuxi_web). 2: 칸마다 원본 자리(_at). 3: 건 단위 자동 통과(triage)
-                 # 4: 글자층이 없는 쪽은 OCR 글자로 대조
+VERSION = 5      # 바꾸면 이미 읽은 작업도 다시 대조한다(wuxi_web). 2: 칸마다 원본 자리(_at). 3: 건 단위 자동 통과(triage)
+                 # 4: 글자층이 없는 쪽은 OCR 글자로 대조. 5: 원본 어디에도 그 모양의 값이 없는 빈 Material, PO 는 「none」
 
 # 🔴 왜 스캔 쪽을 OCR 하나. 10월 50건 중 29건이 스캔 서류였고, 글자층이 없어 칸을 하나도 견주지 못해 모두 사람에게
 #    넘어갔다(자동 통과 49건 중 4건, 11/14). 엔진도 스캔 쪽을 OCR 하지만 쪽 종류를 가르는 데만 쓰고 글자 자리는
@@ -185,12 +185,26 @@ def _pool_ocr(pgs) -> list | None:
     return out
 
 
+def _big_image(page) -> bool:
+    """쪽 넓이의 30% 넘게 덮는 그림이 있는가(로고는 작다). 모르면 있다고 본다."""
+    try:
+        import pymupdf
+        area = abs(page.rect)
+        return any(abs(page.rect & pymupdf.Rect(i["bbox"])) > 0.3 * area for i in page.get_image_info())
+    except Exception:
+        return True
+
+
+def _blank_cols(items) -> bool:
+    return any(isinstance(r, dict) and not _val(r, c) for r in items or [] for c in BLANK_FLAG)
+
+
 def _prefetch(items, pages) -> None:
     """품목 줄이 견줄 스캔 쪽(check_row 가 read_ocr 할 쪽)을 미리 한꺼번에 OCR 해 둔다.
 
     🔴 check_row 는 쪽을 하나씩 OCR 한다(스레드 4개). 스캔 6쪽짜리 건에서 대조에만 3분이 들었다(11/15, 배터리로 도는
        노트북). 판독이 끝나 엔진의 OCR 일꾼들이 놀고 있으므로 그 일꾼들에 쪽을 나눠 동시에 읽힌다."""
-    want: list = []
+    want: list = list(pages) if _blank_cols(items) else []      # 빈 Material, PO 가 있으면 모든 쪽에서 후보를 찾는다
     for src in {(r.get("출처") or "CI") for r in items or [] if isinstance(r, dict)}:
         same = [p for p in pages if p.kind == src]
         for p in same or pages:
@@ -229,6 +243,13 @@ class Page:
         # 엔진의 scan 표시는 로고 그림만 있어도 켜진다. 글자층이 있는지는 글자를 직접 보고 정한다
         raw = page.get_text()
         self._set(raw, page.get_text("words") if len(raw.strip()) >= 50 else [])
+        self.ocr_tried = False          # OCR 을 해 봤는가(글이 거의 없는 쪽이어도)
+        self.big_img = self.has_text and _big_image(page)
+
+    @property
+    def seen(self) -> bool:
+        """이 쪽의 글을 다 봤다고 할 수 있는가. 글자층이 있어도 큰 그림이 박혀 있으면 표의 값이 그림일 수 있다."""
+        return self.ocr_tried or (self.has_text and not self.big_img)
 
     def _set(self, raw: str, words: list) -> None:
         self.has_text = len(raw.strip()) >= 50
@@ -247,6 +268,7 @@ class Page:
             lines = read(self.page, self.pn) or []
         except Exception:
             lines = []
+        self.ocr_tried = bool(lines) or _engine() is not None
         raw = "\n".join(ln[4] for ln in lines)
         if len(raw.strip()) >= 50:
             self.lines = lines
@@ -476,6 +498,40 @@ def check_row(row: dict, pages: list[Page], seen: dict, loc: dict | None = None)
 
 # 비어 있으면 사람이 볼 칸(web/index.html 의 BLANK_FLAG 와 같게). 정답 93건에서 고친 칸이 빈 Material 과 빈 PO 에 몰렸다
 BLANK_FLAG = ("Material", "Purchase Order")
+# 🔴 빈 칸이라도 원본 어디에도 그 모양의 값이 없으면 사람도 채울 수가 없다. 확정 정답 97건에서 빈 Material 70칸, 빈 PO 40칸은
+#    사람도 비워 두었고, 사람이 채운 34칸은 값이 모두 원본에 찍혀 있었다(11/15). 그래서 원본에 그 모양의 값이 하나도 없고
+#    모든 쪽의 글을 다 본 때만 「none」 으로 두고 확인할 칸에서 뺀다. 모양은 넉넉하게 잡는다(넓으면 사람에게 더 넘길 뿐).
+#    OCR 이 번호 사이를 띄어 읽어도 잡게 빈칸을 지운 글에서도 찾는다.
+BLANK_SHAPE = {"Purchase Order": re.compile(r"(?<!\d)4\d{9}(?!\d)"),
+               "Material": re.compile(r"(?<![A-Z0-9])[A-Z][A-Z0-9]{7}(?![A-Z0-9])")}
+
+
+def _has_shape(c: str, text: str) -> bool:
+    """Material 모양은 숫자가 셋 이상 든 것만 친다(P3024498, EBE05551). 낱말(INVOICES)은 후보가 아니다."""
+    for m in BLANK_SHAPE[c].finditer(text):
+        if c != "Material" or sum(ch.isdigit() for ch in m.group()) >= 3:
+            return True
+    return False
+
+
+def _mark_blank_none(items, pages) -> None:
+    """빈 Material, PO 가운데 원본에 그 모양의 값이 하나도 없는 칸을 「none」 으로 둔다(_ok)."""
+    if not _blank_cols(items) or not pages:
+        return
+    for p in pages:
+        p.read_ocr()
+    if not all(p.seen for p in pages):
+        return                          # 글을 못 본 쪽이 있으면 원본에 값이 없다고 말할 수 없다
+    up = "\n".join(p.up for p in pages)
+    tight = re.sub(r"[ \t]+", "", up)
+    shape = {c: _has_shape(c, up) or _has_shape(c, tight) for c in BLANK_FLAG}
+    for r in items or []:
+        if not isinstance(r, dict):
+            continue
+        ok, hint = r.get("_ok") or {}, r.get("_hint") or {}
+        for c in BLANK_FLAG:
+            if not _val(r, c) and not shape[c] and ok.get(c) == "-" and not hint.get(c):
+                ok[c] = "none"
 
 
 def triage(items: list, verdict) -> dict:
@@ -496,7 +552,7 @@ def triage(items: list, verdict) -> dict:
         ok, hint = r.get("_ok") or {}, r.get("_hint") or {}
         for c in CHECK_COLS:
             s, v = ok.get(c), str(r.get(c) if r.get(c) is not None else "").strip()
-            if s == "miss" or (s == "-" and hint.get(c)) or (not v and c in BLANK_FLAG):
+            if s == "miss" or (s == "-" and hint.get(c)) or (not v and c in BLANK_FLAG and s != "none"):
                 flags += 1
             elif s == "?":
                 unk += 1
@@ -532,4 +588,6 @@ def check_items(items: list, docs, meta, ocr: bool = True) -> dict:
         for s in st.values():
             total[s] = total.get(s, 0) + 1
         total["hint"] += len(hint)
+    _mark_blank_none(items, pages)
+    total["none"] = sum(1 for r in items or [] if isinstance(r, dict) for v in (r.get("_ok") or {}).values() if v == "none")
     return total

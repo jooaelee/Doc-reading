@@ -573,7 +573,8 @@ function ckClass(r, c) {
   const s = (r._ok || {})[c], h = (r._hint || {})[c], v = String(r[c] == null ? '' : r[c]).trim();
   if (s === 'miss') return ['ck-miss', '원본 글자에서 같은 값을 찾지 못했습니다. 원본과 대조해 주십시오'];
   if (s === '-' && h) return ['ck-hint', `원본의 같은 줄에 ${h} 값이 있습니다. 두 번 누르면 채웁니다`, h];
-  if (!v && BLANK_FLAG.includes(c)) return ['ck-blank', '비어 있습니다. 원본에 값이 있는지 보십시오'];
+  // none: 원본 어디에도 그 모양의 값이 없는 빈 칸(서버 cell_check._mark_blank_none). 사람이 채울 값이 없어 확인할 칸에서 뺀다
+  if (!v && BLANK_FLAG.includes(c) && s !== 'none') return ['ck-blank', '비어 있습니다. 원본에 값이 있는지 보십시오'];
   if (s === '?') return ['ck-unk', '원본 글자로 확인할 수 없습니다(스캔 서류 등)'];
   return null;
 }

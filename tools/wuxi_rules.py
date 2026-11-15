@@ -234,6 +234,48 @@ def supplier_for(text: str, ex: dict | None = None, auto_create=True):
     return save_supplier(shipper, [shipper], by="자동", source="auto")["id"]
 
 
+def _key(v) -> str:
+    """회사 이름 견주기용. 띄어쓰기와 문장 부호를 뺀다(HAPPYNARAE CO,.LTD 와 HAPPYNARAE CO.,LTD 는 같은 회사)."""
+    return re.sub(r"[^0-9A-Z가-힣]", "", str(v if v is not None else "").upper())
+
+
+def supplier_by_name(name: str):
+    """판독한 회사 이름(송하인)과 같은 공급사. 가장 긴 이름이 맞는 공급사가 이긴다."""
+    k = _key(name)
+    if len(k) < 3:
+        return None
+    best, best_len = None, 0
+    for sid, s in suppliers().items():
+        for w in [s.get("name")] + list(s.get("match") or []):
+            wk = _key(w)
+            if len(wk) >= 3 and len(wk) > best_len and (wk in k or k in wk):
+                best, best_len = sid, len(wk)
+    return best
+
+
+def supplier_after_read(pre, text: str, ex: dict | None, auto_create=True):
+    """판독 뒤 공급사를 다시 정한다. pre 는 판독 전에 서류 글로 고른 공급사다.
+
+    🔴 서류 글로 고르면 글에 찍힌 회사 이름 가운데 가장 긴 것이 이긴다. 우시 서류에는 받는 쪽
+       「SK HYNIX SEMICONDUCTOR (CHINA) LTD.」 가 거의 모든 건에 찍혀 있어, 그 이름이 공급사로 한 번 적힌 뒤로
+       10월 512건 중 210건이 그 「공급사」 로 묶였다(송하인은 SOULBRAIN, KOREA ZINC 처럼 제대로 읽혔는데도, 11/15).
+       그래서 판독한 송하인과 같은 공급사가 있으면 그것을 쓴다. 없으면 글로 고른 공급사를 그대로 두되,
+       그 공급사가 판독한 수하인(받는 쪽)이면 송하인으로 공급사를 새로 적는다."""
+    ex = ex or {}
+    shipper = str(ex.get("shipper_name") or "").strip()
+    sid = supplier_by_name(shipper)
+    if sid:
+        return sid
+    if pre:
+        cons = _key(ex.get("consignee_name"))
+        words = [_key(w) for w in [supplier_name(pre)] + list((suppliers().get(pre) or {}).get("match") or [])]
+        buyer = bool(cons) and any(len(w) >= 3 and (w in cons or cons in w) for w in words)
+        if not buyer or not (auto_create and len(_key(shipper)) >= 3):
+            return pre
+        return save_supplier(shipper, [shipper], by="자동", source="auto")["id"]
+    return supplier_for(text, ex, auto_create)
+
+
 # ───────────────────────────────────────── 규칙 읽기
 def all_rules(include_deleted=False) -> list:
     with _lock:
