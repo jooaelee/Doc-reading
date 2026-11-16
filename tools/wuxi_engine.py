@@ -132,6 +132,93 @@ def split_by_po(ex: dict, text: str = "") -> int:
     return n
 
 
+LOT_RE = re.compile(r"\(?\s*LOT\s*(?:NO\.?)?\s*[:#]?\s*([A-Z0-9][A-Z0-9\-]{3,})\s*\)?", re.I)
+LOT_SPLIT = "lot_split"        # 판독 지침 규칙의 data["action"]. 운영 화면에서 공급사마다 켜고 끈다
+
+
+def lot_rule(supplier) -> str | None:
+    """이 공급사에 「LOT 마다 나누기」 판독 지침이 켜져 있으면 그 규칙 id."""
+    for r in wuxi_rules.active("guide", supplier) if supplier else []:
+        if r["scope"] == supplier and (r.get("data") or {}).get("action") == LOT_SPLIT:
+            return r["id"]
+    return None
+
+
+def split_by_lot(ex: dict, rule_id: str) -> int:
+    """인보이스 줄을 포장명세서의 LOT 줄마다 나누고 Material 칸에 LOT 번호를 넣는다. LOT 번호를 넣은 줄 수를 낸다.
+
+    TOK: 인보이스는 「TOKN-4030 2.2CP 240 GAL」 한 줄인데 포장명세서는 「(LOT: 60806727) 96 GAL」,
+    「(LOT: 60907801) 144 GAL」 로 나눠 적고, 사람이 확정한 정답은 LOT 마다 한 행에 Material 이 LOT 번호다
+    (10월 HDLCA126804, HDLCA127307). 운영 화면의 TOK 판독 지침(action=lot_split)이 켜졌을 때만 부른다.
+    🔴 같은 품명의 인보이스 수량 합과 LOT 수량 합이 같을 때만 나눈다. 다르면 그대로 두어 사람이 본다.
+       PO 마다 먼저 나뉜 줄(split_by_po)은 인쇄된 LOT 차례대로 수량을 채워 나간다.
+    """
+    plan, _ = _lot_plan(ex)
+    if not plan:
+        return 0
+    ci = ex.get("ci_lines") or []
+    out, n = [], 0
+    for i, x in enumerate(ci):
+        if i not in plan:
+            out.append(x)
+            continue
+        price = _num(x.get("unit_price"))
+        for lot, q in plan[i]:
+            q = int(q) if float(q).is_integer() else q
+            y = dict(x, qty=q, material_code=lot, _lot=lot,
+                     amount=round(price * q, 2) if price is not None else x.get("amount"))
+            y["_rules"] = dict(x.get("_rules") or {}, material_code=rule_id)   # 하이닉스 형식이 아니어도 Material 로 쓴다
+            out.append(y)
+        n += len(plan[i])
+    ex["ci_lines"] = out
+    return n
+
+
+def lot_covers(ex: dict) -> bool:
+    """LOT 이 찍힌 포장명세서 줄과 인보이스 줄이 품명마다 수량 합이 모두 맞는지. 맞으면 LOT 마다 나누는 공급사의
+    포장명세서 줄 수 견주기를 이것으로 갈음한다(한 품명을 인보이스는 PO 마다 두 줄, 포장명세서는 LOT 한 줄로 적기도 해서
+    줄 수는 맞을 수가 없다). 줄 수보다 엄한 견주기다. 하나라도 안 맞으면 False 이고 줄 수로 견준다."""
+    return _lot_plan(ex)[1]
+
+
+def _lot_plan(ex: dict) -> tuple[dict, bool]:
+    """인보이스 줄 번호마다 [(LOT, 수량)]. 그리고 모든 인보이스 줄과 모든 LOT 줄이 짝을 찾았는지."""
+    pl = [x for x in ex.get("pl_lines") or [] if isinstance(x, dict)]
+    groups = {}
+    for x in pl:
+        m = LOT_RE.search(str(x.get("description") or ""))
+        q = _num(x.get("qty"))
+        if not m or not q:
+            continue
+        base = _key_desc(LOT_RE.sub("", str(x.get("description") or "")))
+        groups.setdefault(base, []).append([m.group(1).upper(), q])
+    ci = ex.get("ci_lines") or []
+    plan, done = {}, set()
+    for base, lots in groups.items():
+        idx = [i for i, x in enumerate(ci) if isinstance(x, dict) and len(base) >= 6
+               and (base in _key_desc(x.get("description")) or _key_desc(x.get("description")) in base)
+               and _num(x.get("qty"))]
+        if not idx or any(i in plan for i in idx):
+            continue
+        if abs(sum(_num(ci[i]["qty"]) for i in idx) - sum(q for _, q in lots)) > 1e-6:
+            continue
+        left = [list(v) for v in lots]
+        for i in idx:
+            need, parts = _num(ci[i]["qty"]), []
+            while need > 1e-6 and left:
+                take = min(need, left[0][1])
+                parts.append((left[0][0], take))
+                need -= take
+                left[0][1] -= take
+                if left[0][1] <= 1e-6:
+                    left.pop(0)
+            plan[i] = parts
+        done.add(base)
+    real = [i for i, x in enumerate(ci) if isinstance(x, dict) and _num(x.get("qty"))]
+    covered = bool(groups) and done == set(groups) and all(i in plan for i in real)
+    return plan, covered
+
+
 def _verdict(checks: list) -> tuple[str, list]:
     bad = [c for c in checks if c["state"] == "bad"]
     ok = [c for c in checks if c["state"] == "ok"]
@@ -333,11 +420,28 @@ def read_bundle(pdfs, name="올린 서류", on_step=None, model=None, claude_bin
                 step(f"규칙으로 {len(trace)}칸을 채우거나 고침", True, 0)
             trace += [{"rule": rid, "kind": "prompt", "line": None, "field": None} for rid in prompt_rules]
             step("숫자 검증과 빠짐 검사", True, 0)
-            comp = completeness(ex, pages, wuxi_rules.check_policy(supplier))
+            lot_rid = lot_rule(supplier)
+            pol = wuxi_rules.check_policy(supplier)
+            comp = completeness(ex, pages, pol)      # 빠짐 검사는 인쇄된 인보이스 줄로 한다(나누기 전)
+            if lot_rid:
+                # LOT 마다 나누는 공급사: 포장명세서 줄 수 대신 품명마다 LOT 수량 합을 견준 결과를 쓴다(lot_covers).
+                # 🔴 못 맞춘 줄이 있으면 줄 수가 맞아도 걸리게 한다. 그 줄은 LOT 으로 안 나뉘고 Material 이 빈다(11/16 HDLCA127695)
+                covered = lot_covers(ex)
+                for c in comp["checks"]:
+                    if c["check"] == "lines_pl":
+                        c.update(raw="ok" if covered else "bad",
+                                 raw_note="포장명세서의 LOT 수량 합이 인보이스 줄마다 모두 맞습니다" if covered else
+                                 "포장명세서의 LOT 수량과 맞추지 못한 인보이스 줄이 있습니다. 그 줄은 LOT 마다 나누지 못했습니다")
+                comp = rejudge(comp, pol)
             n_split = split_by_po(ex, "\n".join(getattr(p, "text", "") or "" for p in pages if p.kind == "CI"))
             if n_split:
                 step(f"PO 마다 나눠 적은 수량을 따라 품목 줄 {n_split}개를 더 나눔", True, 0)
-            page_rows =[{"file": os.path.basename(getattr(p, "file", "") or ""), "no": getattr(p, "no", None),
+            if lot_rid:
+                n_lot = split_by_lot(ex, lot_rid)
+                trace.append({"rule": lot_rid, "kind": "guide", "line": None, "field": "material_code"})
+                step(f"포장명세서의 LOT 마다 품목 줄을 나누고 Material 칸에 LOT 번호를 넣음(줄 {n_lot}개)"
+                     if n_lot else "LOT 마다 나누기 규칙: 인보이스 수량과 LOT 수량 합이 맞지 않아 나누지 않음", True, 0)
+            page_rows = [{"file": os.path.basename(getattr(p, "file", "") or ""), "no": getattr(p, "no", None),
                           "kind": p.kind, "scan": bool(getattr(p, "image", False) or p.kind == "SCAN")} for p in pages]
             return {"ex": ex, "verify": r.get("verify") or [], "kinds": kinds, "n_scan": n_scan,
                     "calls": llm.get("calls"), "usd": llm.get("api_usd"), "wall": round(time.perf_counter() - t0, 1),

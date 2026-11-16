@@ -438,3 +438,53 @@ def test_줄_밖에_적힌_PO_모델_수량으로도_나눈다():
     assert E.split_by_po(ex, text) == 2
     assert [(x["po_no"], x["qty"], x["amount"]) for x in ex["ci_lines"]] == [
         ("4303517252", 32, 31840.0), ("4303544657", 190, 189050.0), ("4303517252", 1, 1177.0), ("4303544657", 5, 5885.0)]
+
+
+def tok_ex():
+    """10월 HDLCA126804. 사람이 확정한 정답: TOKN-4030 96(60806727), 144(60907801), TOTS-0180 96(60843428)."""
+    return {"ci_lines": [{"description": "TOKN-4030 2.2CP", "qty": 240, "unit_price": 72400.0, "po_no": "4303544602"},
+                         {"description": "TOTS-0180 1.42CP", "qty": 96, "unit_price": 218400.0, "po_no": "4303544602"}],
+            "pl_lines": [{"description": "TOKN-4030 2.2CP (LOT: 60806727)", "qty": 96},
+                         {"description": "TOKN-4030 2.2CP (LOT: 60907801)", "qty": 144},
+                         {"description": "TOTS-0180 1.42CP (LOT: 60843428)", "qty": 96}]}
+
+
+def test_LOT_마다_나누기_규칙이_켜진_공급사만_LOT_마다_나누고_Material_에_LOT_번호를_넣는다():
+    import gerp_xlsx
+    sid = R.save_supplier("TOK ADVANCED MATERIALS CO., LTD.")["id"]
+    assert E.lot_rule(sid) is None
+    rid = R.add("guide", sid, {"text": "In pl_lines keep the printed LOT number in description.", "action": "lot_split"})["id"]
+    assert E.lot_rule(sid) == rid and E.lot_rule(R.save_supplier("ACME PARTS LTD")["id"]) is None
+    ex = tok_ex()
+    assert E.split_by_lot(ex, rid) == 3
+    assert [(x["material_code"], x["qty"], x["amount"]) for x in ex["ci_lines"]] == [
+        ("60806727", 96, 6950400.0), ("60907801", 144, 10425600.0), ("60843428", 96, 20966400.0)]
+    assert gerp_xlsx.hynix_material(ex["ci_lines"][0])[0] == "60806727"     # 하이닉스 형식이 아니어도 규칙 값이라 쓴다
+
+
+def test_LOT_수량_합이_인보이스와_다르면_나누지_않는다():
+    ex = tok_ex()
+    ex["pl_lines"][1]["qty"] = 100
+    assert E.split_by_lot(ex, "r") == 1                   # TOTS 줄만(합이 맞음). TOKN 은 그대로
+    assert ex["ci_lines"][0]["qty"] == 240 and "material_code" not in ex["ci_lines"][0]
+
+
+def test_PO_마다_나뉜_줄은_LOT_차례대로_수량을_채운다():
+    ex = {"ci_lines": [{"description": "TOKN-4030 2.2CP", "qty": 164, "unit_price": 1.0, "po_no": "A"},
+                       {"description": "TOKN-4030 2.2CP", "qty": 164, "unit_price": 1.0, "po_no": "B"}],
+          "pl_lines": [{"description": "TOKN-4030 2.2CP (LOT: 60908904)", "qty": 144},
+                       {"description": "TOKN-4030 2.2CP (LOT: 60908904)", "qty": 20},
+                       {"description": "TOKN-4030 2.2CP (LOT: 60908909)", "qty": 20},
+                       {"description": "TOKN-4030 2.2CP (LOT: 60908909)", "qty": 144}]}
+    assert E.split_by_lot(ex, "r") == 4
+    assert [(x["po_no"], x["material_code"], x["qty"]) for x in ex["ci_lines"]] == [
+        ("A", "60908904", 144), ("A", "60908904", 20), ("B", "60908909", 20), ("B", "60908909", 144)]
+
+
+def test_LOT_으로_나눈_줄과_포장명세서_줄_수를_견준다():
+    """TOK 포장명세서는 LOT 마다 한 줄이라 인쇄된 인보이스 줄(2줄)과 견주면 늘 「빠진 줄 의심」 이 됐다(HDLCA126805)."""
+    ex = tok_ex()
+    assert {c["check"]: c["state"] for c in E.completeness(ex, [], R.check_policy(None))["checks"]}["lines_pl"] == "bad"
+    assert E.lot_covers(ex)                              # 품명마다 LOT 수량 합이 맞아 줄 수 견주기를 갈음한다
+    ex["pl_lines"].append({"description": "TARF-TAI-1006 1.4CP (LOT: 60906709)", "qty": 24})
+    assert not E.lot_covers(ex)                          # 인보이스에 없는 LOT 줄이 있으면 갈음하지 않는다
