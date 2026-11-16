@@ -357,3 +357,51 @@ def test_송하인을_모르면_글로_고른_공급사를_그대로_둔다():
     ex = {"shipper_name": "FAST LOGISTICS", "consignee_name": "SK HYNIX SEMICONDUCTOR (CHINA) LTD."}
     assert R.supplier_after_read(sid, "", ex) == sid
     assert len(R.suppliers()) == 1
+
+
+def test_꺼_둔_검사도_결과를_남겨_다시_켜면_판정이_돌아온다():
+    """운영 화면에서 검사를 켜고 끄면 다시 읽지 않고 판정만 다시 매긴다(wuxi_engine.rejudge). 느슨하게 만드는 곳이 아니다."""
+    ex = ex_of()
+    ex["pl_lines"] = [{"seq": 1}]
+    pol = R.check_policy(None)
+    pol["lines_pl"]["enabled"] = False
+    c = E.completeness(ex, [], pol)
+    pl = {x["check"]: x for x in c["checks"]}["lines_pl"]
+    assert c["verdict"] == "이상 없음" and pl["state"] == "off" and pl["raw"] == "bad"
+    on = E.rejudge(c, R.check_policy(None))
+    assert on["verdict"] == "빠진 줄 의심" and on["notes"] == ["인보이스 2줄, 포장명세서 1줄로 줄 수가 다릅니다"]
+    assert E.rejudge(on, pol)["verdict"] == "이상 없음"
+
+
+def test_예전에_꺼_둔_채로_읽은_검사를_켜면_근거_없음으로_둔다():
+    old = {"verdict": "이상 없음", "checks": [{"check": "amount", "name": "금액 합계", "state": "ok", "note": "맞음"},
+                                             {"check": "lines_pl", "name": "포장명세서 줄 수", "state": "off", "note": ""}]}
+    c = E.rejudge(old, R.check_policy(None))
+    pl = {x["check"]: x for x in c["checks"]}["lines_pl"]
+    assert pl["state"] == "skip" and "다시 읽으면" in pl["note"] and c["verdict"] == "이상 없음"
+
+
+def test_검사를_끄면_확정하지_않은_작업의_판정과_자동_통과를_다시_매긴다(monkeypatch):
+    import cell_check
+    import wuxi_web as web
+    store = web.Store()
+    monkeypatch.setattr(web, "STORE", store)
+    monkeypatch.setattr(cell_check, "triage", lambda items, v: {"auto": v == "이상 없음", "why": [] if v == "이상 없음" else [v]})
+    sid = R.save_supplier("ACME PARTS LTD")["id"]
+    ex = ex_of()
+    ex["pl_lines"] = [{"seq": 1}]
+    comp = E.completeness(ex, [], R.check_policy(sid))
+    jobs = {}
+    for k, confirmed in (("a", False), ("b", True)):
+        j = {"id": k * 32, "status": "done", "supplier": sid, "confirmed": confirmed or None,
+             "payload": {"items": [], "completeness": json.loads(json.dumps(comp)), "cellcheck_v": cell_check.VERSION,
+                         "triage": {"auto": False, "why": ["빠진 줄 의심"]}}}
+        store.jobs[j["id"]] = jobs[k] = j
+    assert web.rejudge_all() == 0                                       # 설정이 그대로면 아무것도 쓰지 않는다
+    R.add("check", sid, {"check": "lines_pl", "enabled": False})
+    assert web.rejudge_all() == 1
+    a = jobs["a"]["payload"]
+    assert a["completeness"]["verdict"] == "이상 없음" and a["triage"]["auto"] is True
+    assert json.loads((web.jobs_root() / ("a" * 32) / "job.json").read_text(encoding="utf-8"))["payload"]["triage"]["auto"]
+    assert jobs["b"]["payload"]["completeness"]["verdict"] == "빠진 줄 의심"   # 확정한 작업은 건드리지 않는다
+    assert web.rejudge_all() == 0

@@ -72,8 +72,46 @@ def completeness(ex: dict, pages, policy: dict | None = None) -> dict:
     """모델 답과 상관없는 근거로 빠진 줄을 의심한다. verdict: 이상 없음 | 빠진 줄 의심 | 확인 못 함.
 
     policy 는 wuxi_rules.check_policy() 의 꼴이다. 꺼 둔 검사는 세지 않고 결과에 「꺼짐」으로 남긴다.
+    꺼 둔 검사도 실제 결과(raw)는 해 두어, 나중에 운영 화면에서 켜고 끄면 다시 읽지 않고 판정만 다시 매긴다(rejudge).
     """
     pol = policy or wuxi_rules.check_policy(None)
+    every = {k: dict(v, enabled=True) for k, v in pol.items()}
+    return rejudge(_completeness_raw(ex, pages, every), pol)
+
+
+def _verdict(checks: list) -> tuple[str, list]:
+    bad = [c for c in checks if c["state"] == "bad"]
+    ok = [c for c in checks if c["state"] == "ok"]
+    if bad:
+        return "빠진 줄 의심", [c["note"] for c in bad]
+    if ok:
+        return "이상 없음", [f"총액, 줄 수, 쪽 근거 {len(ok)}가지가 모두 맞습니다"]
+    return "확인 못 함", ["총액, 줄 수, 글자층 가운데 견줄 근거가 없습니다. 원본과 줄 수를 직접 대조하십시오."]
+
+
+def rejudge(comp: dict, policy: dict) -> dict:
+    """저장된 빠짐 검사 결과에 지금 켜고 끈 설정을 다시 건다. AI 와 원본을 다시 보지 않는다.
+
+    🔴 검사를 느슨하게 하는 곳이 아니다. 끄는 것은 운영 화면에서 사람이 공급사마다 정한 것만 따른다.
+    예전에 꺼 둔 채로 읽은 검사(raw 가 없음)는 결과를 모르므로, 다시 켜면 「근거 없음」으로 두고 다시 읽기를 권한다.
+    """
+    checks = []
+    for c in comp.get("checks") or []:
+        p = policy.get(c.get("check")) or {"enabled": True}
+        raw, note = c.get("raw", c.get("state")), c.get("raw_note", c.get("note") or "")
+        x = dict(c, raw=raw, raw_note=note, rule=p.get("rule"))
+        if not p.get("enabled", True):
+            x.update(state="off", note="운영 화면에서 꺼 둔 검사입니다")
+        elif raw == "off":
+            x.update(state="skip", note="검사를 꺼 둔 채로 읽어 결과가 없습니다. 다시 읽으면 검사합니다")
+        else:
+            x.update(state=raw, note=note)
+        checks.append(x)
+    verdict, notes = _verdict(checks)
+    return dict(comp, verdict=verdict, notes=notes, checks=checks)
+
+
+def _completeness_raw(ex: dict, pages, pol: dict) -> dict:
     ci = [x for x in (ex.get("ci_lines") or []) if isinstance(x, dict)]
     pl = [x for x in (ex.get("pl_lines") or []) if isinstance(x, dict)]
     cn = [x for x in (ex.get("cn_lines") or []) if isinstance(x, dict)]
@@ -138,15 +176,7 @@ def completeness(ex: dict, pages, policy: dict | None = None) -> dict:
             add("pages", "bad", f"인보이스 쪽 {len(empty_pages)}개에서 읽은 줄이 하나도 확인되지 않습니다")
         else:
             add("pages", "ok", f"인보이스 {len(ci_pages)}쪽 모두 읽은 줄이 보입니다")
-    bad = [c for c in checks if c["state"] == "bad"]
-    ok = [c for c in checks if c["state"] == "ok"]
-    if bad:
-        verdict, notes = "빠진 줄 의심", [c["note"] for c in bad]
-    elif ok:
-        verdict, notes = "이상 없음", [f"총액, 줄 수, 쪽 근거 {len(ok)}가지가 모두 맞습니다"]
-    else:
-        verdict = "확인 못 함"
-        notes = ["총액, 줄 수, 글자층 가운데 견줄 근거가 없습니다. 원본과 줄 수를 직접 대조하십시오."]
+    verdict, notes = _verdict(checks)
     return {"verdict": verdict, "notes": notes, "lines": len(ci), "checks": checks}
 
 

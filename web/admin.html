@@ -436,7 +436,7 @@ function checkPanel(mine) {
     document.querySelectorAll('[data-ck], [data-tol]').forEach(el => el.onchange = async () => {
       const k = el.dataset.ck || el.dataset.tol, row = el.closest('tr'), en = row.querySelector('[data-ck]').checked;
       const tolEl = row.querySelector('[data-tol]'), data = {check: k, enabled: en}; if (tolEl) data.tolerance = tolEl.value;
-      const reason = await reasonModal(SCOPE === '*' ? '공통 빠짐 검사를 바꿉니다' : '이 공급사의 빠짐 검사를 바꿉니다', `「${checks[k].name}」 ${en ? '켬' : '끔'}${tolEl ? `, 허용 차이 ${tolEl.value}` : ''}. 다음 판독부터 쓰입니다.`, '바꾸기');
+      const reason = await reasonModal(SCOPE === '*' ? '공통 빠짐 검사를 바꿉니다' : '이 공급사의 빠짐 검사를 바꿉니다', `「${checks[k].name}」 ${en ? '켬' : '끔'}${tolEl ? `, 허용 차이 ${tolEl.value}` : ''}. 1분 안에 확정하지 않은 작업의 판정도 다시 매깁니다.${tolEl ? ' 허용 차이는 다음 판독부터 쓰입니다.' : ''}`, '바꾸기');
       if (reason == null) { drawRules(); return; }
       const ex = SCOPE === '*' ? common.find(r => r.data.check === k) : mine.find(r => r.kind === 'check' && r.data.check === k);
       try { if (ex) { await post(`api/admin/rules/${ex.id}/edit`, {data, reason}); if (ex.status !== 'active') await post(`api/admin/rules/${ex.id}/activate`, {reason}); }
