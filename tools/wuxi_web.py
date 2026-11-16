@@ -488,19 +488,52 @@ def recheck_in_background() -> threading.Thread:
         for job in todo:
             if job.get("status") == "done" and job.get("payload"):
                 _cell_check(job, only_stale=True)
-        # 켜져 있는 동안 tools/bulk_jobs.py 로 넣은 대기 작업을 1분마다 줄에 세운다. 서버를 다시 켜지 않아도 읽기 시작한다
+        # 켜져 있는 동안 tools/bulk_jobs.py 로 넣은 대기 작업을 1분마다 줄에 세운다. 서버를 다시 켜지 않아도 읽기 시작한다.
+        # 운영 화면에서 빠짐 검사를 켜고 끈 것도 1분 안에 이미 읽은 작업의 판정에 건다
         while True:
+            for fn in (rejudge_all, STORE.rescan):
+                try:
+                    fn()
+                except Exception as e:
+                    log_access(None, f"{fn.__name__}-error", "", 500, str(e))
             time.sleep(RESCAN_SEC)
-            try:
-                STORE.rescan()
-            except Exception:
-                pass
     t = threading.Thread(target=go, daemon=True, name="wuxi-recheck")
     t.start()
     return t
 
 
 RESCAN_SEC = 60
+
+
+def _judge_sig(comp: dict) -> tuple:
+    return comp.get("verdict"), tuple((c.get("check"), c.get("state"), c.get("rule")) for c in comp.get("checks") or [])
+
+
+def rejudge_all() -> int:
+    """이미 읽은 작업의 빠짐 검사 판정과 자동 통과를 지금 운영 설정으로 다시 매긴다(wuxi_engine.rejudge). AI 를 부르지 않는다.
+    확정한 작업은 건드리지 않는다. 바뀐 작업 수를 낸다."""
+    import wuxi_engine
+    import cell_check
+    pols, n = {}, 0
+    for job in list(STORE.jobs.values()):
+        p = job.get("payload")
+        if job.get("status") != "done" or job.get("confirmed") or not p or not (p.get("completeness") or {}).get("checks"):
+            continue
+        sup = job.get("supplier") or p.get("supplier")
+        if sup not in pols:
+            pols[sup] = wuxi_rules.check_policy(sup)
+        new = wuxi_engine.rejudge(p["completeness"], pols[sup])
+        if _judge_sig(new) == _judge_sig(p["completeness"]):
+            continue
+        with _CHECK_LOCK:                      # 대조 일꾼과 job.json 을 동시에 쓰지 않게
+            p["completeness"] = new
+            if p.get("cellcheck_v") == _cellcheck_version():
+                p["triage"] = cell_check.triage(p.get("items"), new["verdict"])
+            STORE.save(job)
+        n += 1
+    if n:
+        log_access(None, "rejudge", "", 200, f"{n}건")
+    return n
 
 
 def _summary(job: dict) -> dict:

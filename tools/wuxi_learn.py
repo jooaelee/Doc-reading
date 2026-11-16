@@ -334,7 +334,7 @@ def preview(rule: dict, jobs: list) -> dict:
     if kind not in ("code", "alias"):
         why = {"header": "열 이름은 판독할 때 쓰이므로, 반영한 뒤 그 공급사 서류를 「다시 읽기」로 확인합니다.",
                "guide": "판독 지침은 판독할 때 쓰이므로, 반영한 뒤 그 공급사 서류를 「다시 읽기」로 확인합니다.",
-               "check": "빠짐 검사 설정은 다음 판독부터 판정에 쓰입니다.",
+               "check": "빠짐 검사를 켜고 끈 것은 1분 안에 확정하지 않은 작업의 판정에도 다시 겁니다. 금액 허용 차이는 다음 판독부터 쓰입니다.",
                "required": "필수 칸 설정은 다음 판독부터 확인 화면 표시에 쓰입니다."}[kind]
         return {"computable": False, "note": why}
     target = FIELD_COL.get(d["field"])

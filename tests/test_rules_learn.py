@@ -357,3 +357,134 @@ def test_송하인을_모르면_글로_고른_공급사를_그대로_둔다():
     ex = {"shipper_name": "FAST LOGISTICS", "consignee_name": "SK HYNIX SEMICONDUCTOR (CHINA) LTD."}
     assert R.supplier_after_read(sid, "", ex) == sid
     assert len(R.suppliers()) == 1
+
+
+def test_꺼_둔_검사도_결과를_남겨_다시_켜면_판정이_돌아온다():
+    """운영 화면에서 검사를 켜고 끄면 다시 읽지 않고 판정만 다시 매긴다(wuxi_engine.rejudge). 느슨하게 만드는 곳이 아니다."""
+    ex = ex_of()
+    ex["pl_lines"] = [{"seq": 1}]
+    pol = R.check_policy(None)
+    pol["lines_pl"]["enabled"] = False
+    c = E.completeness(ex, [], pol)
+    pl = {x["check"]: x for x in c["checks"]}["lines_pl"]
+    assert c["verdict"] == "이상 없음" and pl["state"] == "off" and pl["raw"] == "bad"
+    on = E.rejudge(c, R.check_policy(None))
+    assert on["verdict"] == "빠진 줄 의심" and on["notes"] == ["인보이스 2줄, 포장명세서 1줄로 줄 수가 다릅니다"]
+    assert E.rejudge(on, pol)["verdict"] == "이상 없음"
+
+
+def test_예전에_꺼_둔_채로_읽은_검사를_켜면_근거_없음으로_둔다():
+    old = {"verdict": "이상 없음", "checks": [{"check": "amount", "name": "금액 합계", "state": "ok", "note": "맞음"},
+                                             {"check": "lines_pl", "name": "포장명세서 줄 수", "state": "off", "note": ""}]}
+    c = E.rejudge(old, R.check_policy(None))
+    pl = {x["check"]: x for x in c["checks"]}["lines_pl"]
+    assert pl["state"] == "skip" and "다시 읽으면" in pl["note"] and c["verdict"] == "이상 없음"
+
+
+def test_검사를_끄면_확정하지_않은_작업의_판정과_자동_통과를_다시_매긴다(monkeypatch):
+    import cell_check
+    import wuxi_web as web
+    store = web.Store()
+    monkeypatch.setattr(web, "STORE", store)
+    monkeypatch.setattr(cell_check, "triage", lambda items, v: {"auto": v == "이상 없음", "why": [] if v == "이상 없음" else [v]})
+    sid = R.save_supplier("ACME PARTS LTD")["id"]
+    ex = ex_of()
+    ex["pl_lines"] = [{"seq": 1}]
+    comp = E.completeness(ex, [], R.check_policy(sid))
+    jobs = {}
+    for k, confirmed in (("a", False), ("b", True)):
+        j = {"id": k * 32, "status": "done", "supplier": sid, "confirmed": confirmed or None,
+             "payload": {"items": [], "completeness": json.loads(json.dumps(comp)), "cellcheck_v": cell_check.VERSION,
+                         "triage": {"auto": False, "why": ["빠진 줄 의심"]}}}
+        store.jobs[j["id"]] = jobs[k] = j
+    assert web.rejudge_all() == 0                                       # 설정이 그대로면 아무것도 쓰지 않는다
+    R.add("check", sid, {"check": "lines_pl", "enabled": False})
+    assert web.rejudge_all() == 1
+    a = jobs["a"]["payload"]
+    assert a["completeness"]["verdict"] == "이상 없음" and a["triage"]["auto"] is True
+    assert json.loads((web.jobs_root() / ("a" * 32) / "job.json").read_text(encoding="utf-8"))["payload"]["triage"]["auto"]
+    assert jobs["b"]["payload"]["completeness"]["verdict"] == "빠진 줄 의심"   # 확정한 작업은 건드리지 않는다
+    assert web.rejudge_all() == 0
+
+
+def test_PO_마다_나눠_적은_수량은_빠짐_검사_뒤에_PO_마다_한_줄로_나눈다():
+    """동진 「PHOTORESIST DJHS-1410 24 GAL (4303544462 : 16) (4303565585 : 8)」(10월 PNS26105010). G-ERP 는 PO 마다 한 행."""
+    ex = {"ci_lines": [{"seq": 1, "description": "PHOTORESIST DJHS-1410", "qty": 24, "unit_price": 1337.0, "amount": 32088.0,
+                        "po_no": "4303544462", "po_item_no": "00010",
+                        "po_split": [{"po_no": "4303544462", "qty": 16}, {"po_no": "4303565585", "qty": 8}]},
+                       {"seq": 2, "description": "PHOTORESIST ADJHS-2045", "qty": 16, "unit_price": 1594.0, "amount": 25504.0,
+                        "po_split": []}],
+          "pl_lines": [{"seq": 1}, {"seq": 2}], "invoice_totals": [{"invoice_no": "", "total": 57592.0}]}
+    comp = E.completeness(ex, [], R.check_policy(None))
+    assert {c["check"]: c["state"] for c in comp["checks"]}["lines_pl"] == "ok"      # 검사는 인쇄된 2줄로
+    assert E.split_by_po(ex) == 1
+    got = [(x.get("po_no"), x["qty"], x["amount"], x.get("po_item_no")) for x in ex["ci_lines"]]
+    assert got == [("4303544462", 16, 21392.0, "00010"), ("4303565585", 8, 10696.0, None), (None, 16, 25504.0, None)]
+    assert ex["ci_lines"][2]["description"] == "PHOTORESIST ADJHS-2045" and "po_split" not in ex["ci_lines"][0]
+
+
+def test_나눈_수량의_합이_줄_수량과_다르면_나누지_않는다():
+    ex = {"ci_lines": [{"qty": 24, "unit_price": 1.0, "po_split": [{"po_no": "A", "qty": 16}, {"po_no": "B", "qty": 9}]},
+                       {"qty": 5, "po_split": [{"po_no": "A", "qty": 5}]}]}
+    assert E.split_by_po(ex) == 0 and len(ex["ci_lines"]) == 2
+
+
+def test_줄_밖에_적힌_PO_모델_수량으로도_나눈다():
+    """와이씨켐 「Customer P/O No. : 4303517252 (YHS-140  32 GAL)」(10월 HDLCA126692, 사람이 확정한 정답과 같음)."""
+    text = ("Customer P/O No. :\n4303517252 (YHS-140  32 GAL)\n4303544657 (YHS-140  190 GAL)\n"
+            "4303517252 (AYCHS-1320  1 GAL)\n4303544657 (AYCHS-1320  5 GAL)\n4303517252 (YHS-140  32 GAL)\n")
+    ex = {"ci_lines": [{"description": "SOC. PR (YHS-140)", "qty": 222, "unit_price": 995.0, "po_no": "4303517252"},
+                       {"description": "SOC. PR(AYCHS-1320)", "qty": 6, "unit_price": 1177.0, "po_no": "4303517252"}]}
+    assert E.split_by_po(ex, text) == 2
+    assert [(x["po_no"], x["qty"], x["amount"]) for x in ex["ci_lines"]] == [
+        ("4303517252", 32, 31840.0), ("4303544657", 190, 189050.0), ("4303517252", 1, 1177.0), ("4303544657", 5, 5885.0)]
+
+
+def tok_ex():
+    """10월 HDLCA126804. 사람이 확정한 정답: TOKN-4030 96(60806727), 144(60907801), TOTS-0180 96(60843428)."""
+    return {"ci_lines": [{"description": "TOKN-4030 2.2CP", "qty": 240, "unit_price": 72400.0, "po_no": "4303544602"},
+                         {"description": "TOTS-0180 1.42CP", "qty": 96, "unit_price": 218400.0, "po_no": "4303544602"}],
+            "pl_lines": [{"description": "TOKN-4030 2.2CP (LOT: 60806727)", "qty": 96},
+                         {"description": "TOKN-4030 2.2CP (LOT: 60907801)", "qty": 144},
+                         {"description": "TOTS-0180 1.42CP (LOT: 60843428)", "qty": 96}]}
+
+
+def test_LOT_마다_나누기_규칙이_켜진_공급사만_LOT_마다_나누고_Material_에_LOT_번호를_넣는다():
+    import gerp_xlsx
+    sid = R.save_supplier("TOK ADVANCED MATERIALS CO., LTD.")["id"]
+    assert E.lot_rule(sid) is None
+    rid = R.add("guide", sid, {"text": "In pl_lines keep the printed LOT number in description.", "action": "lot_split"})["id"]
+    assert E.lot_rule(sid) == rid and E.lot_rule(R.save_supplier("ACME PARTS LTD")["id"]) is None
+    ex = tok_ex()
+    assert E.split_by_lot(ex, rid) == 3
+    assert [(x["material_code"], x["qty"], x["amount"]) for x in ex["ci_lines"]] == [
+        ("60806727", 96, 6950400.0), ("60907801", 144, 10425600.0), ("60843428", 96, 20966400.0)]
+    assert gerp_xlsx.hynix_material(ex["ci_lines"][0])[0] == "60806727"     # 하이닉스 형식이 아니어도 규칙 값이라 쓴다
+
+
+def test_LOT_수량_합이_인보이스와_다르면_나누지_않는다():
+    ex = tok_ex()
+    ex["pl_lines"][1]["qty"] = 100
+    assert E.split_by_lot(ex, "r") == 1                   # TOTS 줄만(합이 맞음). TOKN 은 그대로
+    assert ex["ci_lines"][0]["qty"] == 240 and "material_code" not in ex["ci_lines"][0]
+
+
+def test_PO_마다_나뉜_줄은_LOT_차례대로_수량을_채운다():
+    ex = {"ci_lines": [{"description": "TOKN-4030 2.2CP", "qty": 164, "unit_price": 1.0, "po_no": "A"},
+                       {"description": "TOKN-4030 2.2CP", "qty": 164, "unit_price": 1.0, "po_no": "B"}],
+          "pl_lines": [{"description": "TOKN-4030 2.2CP (LOT: 60908904)", "qty": 144},
+                       {"description": "TOKN-4030 2.2CP (LOT: 60908904)", "qty": 20},
+                       {"description": "TOKN-4030 2.2CP (LOT: 60908909)", "qty": 20},
+                       {"description": "TOKN-4030 2.2CP (LOT: 60908909)", "qty": 144}]}
+    assert E.split_by_lot(ex, "r") == 4
+    assert [(x["po_no"], x["material_code"], x["qty"]) for x in ex["ci_lines"]] == [
+        ("A", "60908904", 144), ("A", "60908904", 20), ("B", "60908909", 20), ("B", "60908909", 144)]
+
+
+def test_LOT_으로_나눈_줄과_포장명세서_줄_수를_견준다():
+    """TOK 포장명세서는 LOT 마다 한 줄이라 인쇄된 인보이스 줄(2줄)과 견주면 늘 「빠진 줄 의심」 이 됐다(HDLCA126805)."""
+    ex = tok_ex()
+    assert {c["check"]: c["state"] for c in E.completeness(ex, [], R.check_policy(None))["checks"]}["lines_pl"] == "bad"
+    assert E.lot_covers(ex)                              # 품명마다 LOT 수량 합이 맞아 줄 수 견주기를 갈음한다
+    ex["pl_lines"].append({"description": "TARF-TAI-1006 1.4CP (LOT: 60906709)", "qty": 24})
+    assert not E.lot_covers(ex)                          # 인보이스에 없는 LOT 줄이 있으면 갈음하지 않는다

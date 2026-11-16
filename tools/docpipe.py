@@ -464,7 +464,13 @@ HYNIX_CODES = {"sap_code": STR, "po_no": STR, "po_item_no": STR, "iv_no": STR, "
 HYNIX_CI_LINE = {"type": "array", "items": {"type": "object", "additionalProperties": False,
                  "properties": {"seq": NUM, "invoice_no": STR, **HYNIX_CODES,
                                 "description": STR, "qty": NUM, "unit": STR, "unit_price": NUM,
-                                "amount": NUM, "hs_code": STR, "country_of_origin": STR},
+                                "amount": NUM, "hs_code": STR, "country_of_origin": STR,
+                                # 🔴 한 줄의 수량을 PO 마다 나눠 적은 인보이스(동진 「(4303544462 : 16)」, 와이씨켐
+                                #    「4303517252 (YHS-140 32 GAL)」). G-ERP 는 PO 마다 한 행이라, 합쳐 읽으면 사람이
+                                #    줄을 더해야 했다(11/16, 10월 5건). 줄은 인쇄된 대로 두고 나눔만 받아, 빠짐 검사 뒤에
+                                #    엔진이 나눈다(wuxi_engine.split_by_po). 포장명세서와 줄 수 견주기가 그대로 맞는다.
+                                "po_split": {"type": "array", "items": {"type": "object", "additionalProperties": False,
+                                             "properties": {"po_no": STR, "qty": NUM}, "required": ["po_no", "qty"]}}},
                  # 🔴 고객 요구 항목(’26.09.30 메일)은 전부 필수로 둔다. 출력 토큰을 줄이려고
                  #    unit 과 country_of_origin 을 필수에서 뺐더니 모델이 통째로 생략했고
                  #    UNIT 이 44줄 중 0줄로 나왔다. 벽시계는 그렇게 해도 안 줄었다(26.3 → 26.7초).
@@ -634,6 +640,7 @@ Line-level rules. The buyer loads these lines into an ERP screen that links each
   - sap_code: the column headed "Sap Code" or "SAP Code".
   - po_no: the column headed "Po No.", "PO No." or "Purchase Order".
   - po_item_no: the column headed "Po Item No." or "PO Item". It is usually a short zero-padded number such as 00010.
+  - po_split: when the invoice divides this line's quantity among several purchase orders, one entry per order with its po_no and qty as printed, for example "(4303544462 : 16)" printed under the line, or a list such as "4303517252 (YHS-140 32 GAL)" that names this line's model. Keep the line itself as printed and do not split it into several ci_lines. Empty array when the invoice prints no such breakdown for the line.
   - iv_no: the column headed "SK Hynix I/V No." or "I/V No.".
   - hios_no: the column headed "HIOS No.".
   - material_code: the column headed "Material", "Material No", "Material Code" or "Item Code", whatever else the table also prints. It is a different column from sap_code; a table often prints both, and each line then carries both values. Null only when no such column is printed.

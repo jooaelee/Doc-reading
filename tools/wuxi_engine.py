@@ -72,8 +72,186 @@ def completeness(ex: dict, pages, policy: dict | None = None) -> dict:
     """모델 답과 상관없는 근거로 빠진 줄을 의심한다. verdict: 이상 없음 | 빠진 줄 의심 | 확인 못 함.
 
     policy 는 wuxi_rules.check_policy() 의 꼴이다. 꺼 둔 검사는 세지 않고 결과에 「꺼짐」으로 남긴다.
+    꺼 둔 검사도 실제 결과(raw)는 해 두어, 나중에 운영 화면에서 켜고 끄면 다시 읽지 않고 판정만 다시 매긴다(rejudge).
     """
     pol = policy or wuxi_rules.check_policy(None)
+    every = {k: dict(v, enabled=True) for k, v in pol.items()}
+    return rejudge(_completeness_raw(ex, pages, every), pol)
+
+
+# 와이씨켐 인보이스: 「Customer P/O No. : 4303544657 (YHS-140  128 GAL)」 꼴로 PO 마다 모델과 수량을 줄 밖에 적는다.
+# AI 가 줄에 붙이지 못해(11/16 HDLCA127801) 글자층에서 직접 읽는다. 모델 이름이 줄 품명에 들어 있을 때만 쓴다.
+PO_MODEL_QTY = re.compile(r"(?<!\d)(\d{10})\s*\(\s*([A-Z0-9][A-Z0-9.\-]*(?: [A-Z0-9.\-]+)*)\s+([\d,]+(?:\.\d+)?)\s*[A-Z]{1,5}\s*\)")
+
+
+def _key_desc(v) -> str:
+    return re.sub(r"[^0-9A-Z]", "", str(v or "").upper())
+
+
+def _text_splits(text: str) -> dict:
+    """글자층의 「PO (모델 수량 단위)」 를 모델마다 [(PO, 수량)] 로. 같은 쌍이 여러 쪽에 되풀이되면 한 번만."""
+    out = {}
+    for po, model, q in dict.fromkeys(PO_MODEL_QTY.findall(str(text or "").upper())):
+        out.setdefault(_key_desc(model), []).append((po, _num(q.replace(",", ""))))
+    return out
+
+
+def split_by_po(ex: dict, text: str = "") -> int:
+    """인보이스 한 줄의 수량을 PO 마다 나눠 적은 줄(po_split)을 PO 마다 한 줄로 나눈다. 나눈 줄 수를 낸다.
+
+    빠짐 검사(completeness) 뒤에 부른다. 검사는 인쇄된 줄로 하고, G-ERP 에는 PO 마다 한 행이 간다.
+    나눈 수량의 합이 줄 수량과 같을 때만 나눈다. 다르면 잘못 읽은 것이니 그대로 둔다(사람이 본다).
+    text 는 인보이스 글자층. AI 가 po_split 을 비워 둔 줄은 거기 적힌 「PO (모델 수량)」 으로 나눈다.
+    """
+    by_model = _text_splits(text)
+    out, n = [], 0
+    for x in ex.get("ci_lines") or []:
+        sp = [s for s in (x.get("po_split") or []) if isinstance(s, dict)] if isinstance(x, dict) else []
+        parts = [(str(s.get("po_no") or "").strip(), _num(s.get("qty"))) for s in sp]
+        if len(parts) < 2 and isinstance(x, dict):
+            d = _key_desc(x.get("description"))
+            hits = [v for k, v in by_model.items() if len(k) >= 4 and k in d]
+            if len(hits) == 1:
+                parts = hits[0]
+        qty = _num(x.get("qty")) if isinstance(x, dict) else None
+        ok = (len(parts) >= 2 and all(p and q for p, q in parts) and qty is not None
+              and abs(sum(q for _, q in parts) - qty) < 1e-6)
+        if not ok:
+            out.append(x)
+            continue
+        price = _num(x.get("unit_price"))
+        for po, q in parts:
+            q = int(q) if float(q).is_integer() else q       # 8.0 이 아니라 8 로
+            y = {k: v for k, v in x.items() if k != "po_split"}
+            y.update(po_no=po, qty=q, po_item_no=None if po != str(x.get("po_no") or "") else x.get("po_item_no"),
+                     amount=round(price * q, 2) if price is not None else None, _split_from=qty)
+            out.append(y)
+        n += len(parts) - 1
+    if n:
+        ex["ci_lines"] = out
+    return n
+
+
+LOT_RE = re.compile(r"\(?\s*LOT\s*(?:NO\.?)?\s*[:#]?\s*([A-Z0-9][A-Z0-9\-]{3,})\s*\)?", re.I)
+LOT_SPLIT = "lot_split"        # 판독 지침 규칙의 data["action"]. 운영 화면에서 공급사마다 켜고 끈다
+
+
+def lot_rule(supplier) -> str | None:
+    """이 공급사에 「LOT 마다 나누기」 판독 지침이 켜져 있으면 그 규칙 id."""
+    for r in wuxi_rules.active("guide", supplier) if supplier else []:
+        if r["scope"] == supplier and (r.get("data") or {}).get("action") == LOT_SPLIT:
+            return r["id"]
+    return None
+
+
+def split_by_lot(ex: dict, rule_id: str) -> int:
+    """인보이스 줄을 포장명세서의 LOT 줄마다 나누고 Material 칸에 LOT 번호를 넣는다. LOT 번호를 넣은 줄 수를 낸다.
+
+    TOK: 인보이스는 「TOKN-4030 2.2CP 240 GAL」 한 줄인데 포장명세서는 「(LOT: 60806727) 96 GAL」,
+    「(LOT: 60907801) 144 GAL」 로 나눠 적고, 사람이 확정한 정답은 LOT 마다 한 행에 Material 이 LOT 번호다
+    (10월 HDLCA126804, HDLCA127307). 운영 화면의 TOK 판독 지침(action=lot_split)이 켜졌을 때만 부른다.
+    🔴 같은 품명의 인보이스 수량 합과 LOT 수량 합이 같을 때만 나눈다. 다르면 그대로 두어 사람이 본다.
+       PO 마다 먼저 나뉜 줄(split_by_po)은 인쇄된 LOT 차례대로 수량을 채워 나간다.
+    """
+    plan, _ = _lot_plan(ex)
+    if not plan:
+        return 0
+    ci = ex.get("ci_lines") or []
+    out, n = [], 0
+    for i, x in enumerate(ci):
+        if i not in plan:
+            out.append(x)
+            continue
+        price = _num(x.get("unit_price"))
+        for lot, q in plan[i]:
+            q = int(q) if float(q).is_integer() else q
+            y = dict(x, qty=q, material_code=lot, _lot=lot,
+                     amount=round(price * q, 2) if price is not None else x.get("amount"))
+            y["_rules"] = dict(x.get("_rules") or {}, material_code=rule_id)   # 하이닉스 형식이 아니어도 Material 로 쓴다
+            out.append(y)
+        n += len(plan[i])
+    ex["ci_lines"] = out
+    return n
+
+
+def lot_covers(ex: dict) -> bool:
+    """LOT 이 찍힌 포장명세서 줄과 인보이스 줄이 품명마다 수량 합이 모두 맞는지. 맞으면 LOT 마다 나누는 공급사의
+    포장명세서 줄 수 견주기를 이것으로 갈음한다(한 품명을 인보이스는 PO 마다 두 줄, 포장명세서는 LOT 한 줄로 적기도 해서
+    줄 수는 맞을 수가 없다). 줄 수보다 엄한 견주기다. 하나라도 안 맞으면 False 이고 줄 수로 견준다."""
+    return _lot_plan(ex)[1]
+
+
+def _lot_plan(ex: dict) -> tuple[dict, bool]:
+    """인보이스 줄 번호마다 [(LOT, 수량)]. 그리고 모든 인보이스 줄과 모든 LOT 줄이 짝을 찾았는지."""
+    pl = [x for x in ex.get("pl_lines") or [] if isinstance(x, dict)]
+    groups = {}
+    for x in pl:
+        m = LOT_RE.search(str(x.get("description") or ""))
+        q = _num(x.get("qty"))
+        if not m or not q:
+            continue
+        base = _key_desc(LOT_RE.sub("", str(x.get("description") or "")))
+        groups.setdefault(base, []).append([m.group(1).upper(), q])
+    ci = ex.get("ci_lines") or []
+    plan, done = {}, set()
+    for base, lots in groups.items():
+        idx = [i for i, x in enumerate(ci) if isinstance(x, dict) and len(base) >= 6
+               and (base in _key_desc(x.get("description")) or _key_desc(x.get("description")) in base)
+               and _num(x.get("qty"))]
+        if not idx or any(i in plan for i in idx):
+            continue
+        if abs(sum(_num(ci[i]["qty"]) for i in idx) - sum(q for _, q in lots)) > 1e-6:
+            continue
+        left = [list(v) for v in lots]
+        for i in idx:
+            need, parts = _num(ci[i]["qty"]), []
+            while need > 1e-6 and left:
+                take = min(need, left[0][1])
+                parts.append((left[0][0], take))
+                need -= take
+                left[0][1] -= take
+                if left[0][1] <= 1e-6:
+                    left.pop(0)
+            plan[i] = parts
+        done.add(base)
+    real = [i for i, x in enumerate(ci) if isinstance(x, dict) and _num(x.get("qty"))]
+    covered = bool(groups) and done == set(groups) and all(i in plan for i in real)
+    return plan, covered
+
+
+def _verdict(checks: list) -> tuple[str, list]:
+    bad = [c for c in checks if c["state"] == "bad"]
+    ok = [c for c in checks if c["state"] == "ok"]
+    if bad:
+        return "빠진 줄 의심", [c["note"] for c in bad]
+    if ok:
+        return "이상 없음", [f"총액, 줄 수, 쪽 근거 {len(ok)}가지가 모두 맞습니다"]
+    return "확인 못 함", ["총액, 줄 수, 글자층 가운데 견줄 근거가 없습니다. 원본과 줄 수를 직접 대조하십시오."]
+
+
+def rejudge(comp: dict, policy: dict) -> dict:
+    """저장된 빠짐 검사 결과에 지금 켜고 끈 설정을 다시 건다. AI 와 원본을 다시 보지 않는다.
+
+    🔴 검사를 느슨하게 하는 곳이 아니다. 끄는 것은 운영 화면에서 사람이 공급사마다 정한 것만 따른다.
+    예전에 꺼 둔 채로 읽은 검사(raw 가 없음)는 결과를 모르므로, 다시 켜면 「근거 없음」으로 두고 다시 읽기를 권한다.
+    """
+    checks = []
+    for c in comp.get("checks") or []:
+        p = policy.get(c.get("check")) or {"enabled": True}
+        raw, note = c.get("raw", c.get("state")), c.get("raw_note", c.get("note") or "")
+        x = dict(c, raw=raw, raw_note=note, rule=p.get("rule"))
+        if not p.get("enabled", True):
+            x.update(state="off", note="운영 화면에서 꺼 둔 검사입니다")
+        elif raw == "off":
+            x.update(state="skip", note="검사를 꺼 둔 채로 읽어 결과가 없습니다. 다시 읽으면 검사합니다")
+        else:
+            x.update(state=raw, note=note)
+        checks.append(x)
+    verdict, notes = _verdict(checks)
+    return dict(comp, verdict=verdict, notes=notes, checks=checks)
+
+
+def _completeness_raw(ex: dict, pages, pol: dict) -> dict:
     ci = [x for x in (ex.get("ci_lines") or []) if isinstance(x, dict)]
     pl = [x for x in (ex.get("pl_lines") or []) if isinstance(x, dict)]
     cn = [x for x in (ex.get("cn_lines") or []) if isinstance(x, dict)]
@@ -138,15 +316,7 @@ def completeness(ex: dict, pages, policy: dict | None = None) -> dict:
             add("pages", "bad", f"인보이스 쪽 {len(empty_pages)}개에서 읽은 줄이 하나도 확인되지 않습니다")
         else:
             add("pages", "ok", f"인보이스 {len(ci_pages)}쪽 모두 읽은 줄이 보입니다")
-    bad = [c for c in checks if c["state"] == "bad"]
-    ok = [c for c in checks if c["state"] == "ok"]
-    if bad:
-        verdict, notes = "빠진 줄 의심", [c["note"] for c in bad]
-    elif ok:
-        verdict, notes = "이상 없음", [f"총액, 줄 수, 쪽 근거 {len(ok)}가지가 모두 맞습니다"]
-    else:
-        verdict = "확인 못 함"
-        notes = ["총액, 줄 수, 글자층 가운데 견줄 근거가 없습니다. 원본과 줄 수를 직접 대조하십시오."]
+    verdict, notes = _verdict(checks)
     return {"verdict": verdict, "notes": notes, "lines": len(ci), "checks": checks}
 
 
@@ -250,11 +420,32 @@ def read_bundle(pdfs, name="올린 서류", on_step=None, model=None, claude_bin
                 step(f"규칙으로 {len(trace)}칸을 채우거나 고침", True, 0)
             trace += [{"rule": rid, "kind": "prompt", "line": None, "field": None} for rid in prompt_rules]
             step("숫자 검증과 빠짐 검사", True, 0)
+            lot_rid = lot_rule(supplier)
+            pol = wuxi_rules.check_policy(supplier)
+            comp = completeness(ex, pages, pol)      # 빠짐 검사는 인쇄된 인보이스 줄로 한다(나누기 전)
+            if lot_rid:
+                # LOT 마다 나누는 공급사: 포장명세서 줄 수 대신 품명마다 LOT 수량 합을 견준 결과를 쓴다(lot_covers).
+                # 🔴 못 맞춘 줄이 있으면 줄 수가 맞아도 걸리게 한다. 그 줄은 LOT 으로 안 나뉘고 Material 이 빈다(11/16 HDLCA127695)
+                covered = lot_covers(ex)
+                for c in comp["checks"]:
+                    if c["check"] == "lines_pl":
+                        c.update(raw="ok" if covered else "bad",
+                                 raw_note="포장명세서의 LOT 수량 합이 인보이스 줄마다 모두 맞습니다" if covered else
+                                 "포장명세서의 LOT 수량과 맞추지 못한 인보이스 줄이 있습니다. 그 줄은 LOT 마다 나누지 못했습니다")
+                comp = rejudge(comp, pol)
+            n_split = split_by_po(ex, "\n".join(getattr(p, "text", "") or "" for p in pages if p.kind == "CI"))
+            if n_split:
+                step(f"PO 마다 나눠 적은 수량을 따라 품목 줄 {n_split}개를 더 나눔", True, 0)
+            if lot_rid:
+                n_lot = split_by_lot(ex, lot_rid)
+                trace.append({"rule": lot_rid, "kind": "guide", "line": None, "field": "material_code"})
+                step(f"포장명세서의 LOT 마다 품목 줄을 나누고 Material 칸에 LOT 번호를 넣음(줄 {n_lot}개)"
+                     if n_lot else "LOT 마다 나누기 규칙: 인보이스 수량과 LOT 수량 합이 맞지 않아 나누지 않음", True, 0)
             page_rows = [{"file": os.path.basename(getattr(p, "file", "") or ""), "no": getattr(p, "no", None),
                           "kind": p.kind, "scan": bool(getattr(p, "image", False) or p.kind == "SCAN")} for p in pages]
             return {"ex": ex, "verify": r.get("verify") or [], "kinds": kinds, "n_scan": n_scan,
                     "calls": llm.get("calls"), "usd": llm.get("api_usd"), "wall": round(time.perf_counter() - t0, 1),
-                    "completeness": completeness(ex, pages, wuxi_rules.check_policy(supplier)),
+                    "completeness": comp,
                     "supplier": supplier, "supplier_name": wuxi_rules.supplier_name(supplier) if supplier else "",
                     "shipper": str(ex.get("shipper_name") or ""), "trace": trace, "pages": page_rows,
                     "model": model or wuxi_paths.model()}
