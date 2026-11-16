@@ -79,6 +79,59 @@ def completeness(ex: dict, pages, policy: dict | None = None) -> dict:
     return rejudge(_completeness_raw(ex, pages, every), pol)
 
 
+# 와이씨켐 인보이스: 「Customer P/O No. : 4303544657 (YHS-140  128 GAL)」 꼴로 PO 마다 모델과 수량을 줄 밖에 적는다.
+# AI 가 줄에 붙이지 못해(11/16 HDLCA127801) 글자층에서 직접 읽는다. 모델 이름이 줄 품명에 들어 있을 때만 쓴다.
+PO_MODEL_QTY = re.compile(r"(?<!\d)(\d{10})\s*\(\s*([A-Z0-9][A-Z0-9.\-]*(?: [A-Z0-9.\-]+)*)\s+([\d,]+(?:\.\d+)?)\s*[A-Z]{1,5}\s*\)")
+
+
+def _key_desc(v) -> str:
+    return re.sub(r"[^0-9A-Z]", "", str(v or "").upper())
+
+
+def _text_splits(text: str) -> dict:
+    """글자층의 「PO (모델 수량 단위)」 를 모델마다 [(PO, 수량)] 로. 같은 쌍이 여러 쪽에 되풀이되면 한 번만."""
+    out = {}
+    for po, model, q in dict.fromkeys(PO_MODEL_QTY.findall(str(text or "").upper())):
+        out.setdefault(_key_desc(model), []).append((po, _num(q.replace(",", ""))))
+    return out
+
+
+def split_by_po(ex: dict, text: str = "") -> int:
+    """인보이스 한 줄의 수량을 PO 마다 나눠 적은 줄(po_split)을 PO 마다 한 줄로 나눈다. 나눈 줄 수를 낸다.
+
+    빠짐 검사(completeness) 뒤에 부른다. 검사는 인쇄된 줄로 하고, G-ERP 에는 PO 마다 한 행이 간다.
+    나눈 수량의 합이 줄 수량과 같을 때만 나눈다. 다르면 잘못 읽은 것이니 그대로 둔다(사람이 본다).
+    text 는 인보이스 글자층. AI 가 po_split 을 비워 둔 줄은 거기 적힌 「PO (모델 수량)」 으로 나눈다.
+    """
+    by_model = _text_splits(text)
+    out, n = [], 0
+    for x in ex.get("ci_lines") or []:
+        sp = [s for s in (x.get("po_split") or []) if isinstance(s, dict)] if isinstance(x, dict) else []
+        parts = [(str(s.get("po_no") or "").strip(), _num(s.get("qty"))) for s in sp]
+        if len(parts) < 2 and isinstance(x, dict):
+            d = _key_desc(x.get("description"))
+            hits = [v for k, v in by_model.items() if len(k) >= 4 and k in d]
+            if len(hits) == 1:
+                parts = hits[0]
+        qty = _num(x.get("qty")) if isinstance(x, dict) else None
+        ok = (len(parts) >= 2 and all(p and q for p, q in parts) and qty is not None
+              and abs(sum(q for _, q in parts) - qty) < 1e-6)
+        if not ok:
+            out.append(x)
+            continue
+        price = _num(x.get("unit_price"))
+        for po, q in parts:
+            q = int(q) if float(q).is_integer() else q       # 8.0 이 아니라 8 로
+            y = {k: v for k, v in x.items() if k != "po_split"}
+            y.update(po_no=po, qty=q, po_item_no=None if po != str(x.get("po_no") or "") else x.get("po_item_no"),
+                     amount=round(price * q, 2) if price is not None else None, _split_from=qty)
+            out.append(y)
+        n += len(parts) - 1
+    if n:
+        ex["ci_lines"] = out
+    return n
+
+
 def _verdict(checks: list) -> tuple[str, list]:
     bad = [c for c in checks if c["state"] == "bad"]
     ok = [c for c in checks if c["state"] == "ok"]
@@ -280,11 +333,15 @@ def read_bundle(pdfs, name="올린 서류", on_step=None, model=None, claude_bin
                 step(f"규칙으로 {len(trace)}칸을 채우거나 고침", True, 0)
             trace += [{"rule": rid, "kind": "prompt", "line": None, "field": None} for rid in prompt_rules]
             step("숫자 검증과 빠짐 검사", True, 0)
-            page_rows = [{"file": os.path.basename(getattr(p, "file", "") or ""), "no": getattr(p, "no", None),
+            comp = completeness(ex, pages, wuxi_rules.check_policy(supplier))
+            n_split = split_by_po(ex, "\n".join(getattr(p, "text", "") or "" for p in pages if p.kind == "CI"))
+            if n_split:
+                step(f"PO 마다 나눠 적은 수량을 따라 품목 줄 {n_split}개를 더 나눔", True, 0)
+            page_rows =[{"file": os.path.basename(getattr(p, "file", "") or ""), "no": getattr(p, "no", None),
                           "kind": p.kind, "scan": bool(getattr(p, "image", False) or p.kind == "SCAN")} for p in pages]
             return {"ex": ex, "verify": r.get("verify") or [], "kinds": kinds, "n_scan": n_scan,
                     "calls": llm.get("calls"), "usd": llm.get("api_usd"), "wall": round(time.perf_counter() - t0, 1),
-                    "completeness": completeness(ex, pages, wuxi_rules.check_policy(supplier)),
+                    "completeness": comp,
                     "supplier": supplier, "supplier_name": wuxi_rules.supplier_name(supplier) if supplier else "",
                     "shipper": str(ex.get("shipper_name") or ""), "trace": trace, "pages": page_rows,
                     "model": model or wuxi_paths.model()}

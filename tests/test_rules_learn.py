@@ -405,3 +405,36 @@ def test_검사를_끄면_확정하지_않은_작업의_판정과_자동_통과�
     assert json.loads((web.jobs_root() / ("a" * 32) / "job.json").read_text(encoding="utf-8"))["payload"]["triage"]["auto"]
     assert jobs["b"]["payload"]["completeness"]["verdict"] == "빠진 줄 의심"   # 확정한 작업은 건드리지 않는다
     assert web.rejudge_all() == 0
+
+
+def test_PO_마다_나눠_적은_수량은_빠짐_검사_뒤에_PO_마다_한_줄로_나눈다():
+    """동진 「PHOTORESIST DJHS-1410 24 GAL (4303544462 : 16) (4303565585 : 8)」(10월 PNS26105010). G-ERP 는 PO 마다 한 행."""
+    ex = {"ci_lines": [{"seq": 1, "description": "PHOTORESIST DJHS-1410", "qty": 24, "unit_price": 1337.0, "amount": 32088.0,
+                        "po_no": "4303544462", "po_item_no": "00010",
+                        "po_split": [{"po_no": "4303544462", "qty": 16}, {"po_no": "4303565585", "qty": 8}]},
+                       {"seq": 2, "description": "PHOTORESIST ADJHS-2045", "qty": 16, "unit_price": 1594.0, "amount": 25504.0,
+                        "po_split": []}],
+          "pl_lines": [{"seq": 1}, {"seq": 2}], "invoice_totals": [{"invoice_no": "", "total": 57592.0}]}
+    comp = E.completeness(ex, [], R.check_policy(None))
+    assert {c["check"]: c["state"] for c in comp["checks"]}["lines_pl"] == "ok"      # 검사는 인쇄된 2줄로
+    assert E.split_by_po(ex) == 1
+    got = [(x.get("po_no"), x["qty"], x["amount"], x.get("po_item_no")) for x in ex["ci_lines"]]
+    assert got == [("4303544462", 16, 21392.0, "00010"), ("4303565585", 8, 10696.0, None), (None, 16, 25504.0, None)]
+    assert ex["ci_lines"][2]["description"] == "PHOTORESIST ADJHS-2045" and "po_split" not in ex["ci_lines"][0]
+
+
+def test_나눈_수량의_합이_줄_수량과_다르면_나누지_않는다():
+    ex = {"ci_lines": [{"qty": 24, "unit_price": 1.0, "po_split": [{"po_no": "A", "qty": 16}, {"po_no": "B", "qty": 9}]},
+                       {"qty": 5, "po_split": [{"po_no": "A", "qty": 5}]}]}
+    assert E.split_by_po(ex) == 0 and len(ex["ci_lines"]) == 2
+
+
+def test_줄_밖에_적힌_PO_모델_수량으로도_나눈다():
+    """와이씨켐 「Customer P/O No. : 4303517252 (YHS-140  32 GAL)」(10월 HDLCA126692, 사람이 확정한 정답과 같음)."""
+    text = ("Customer P/O No. :\n4303517252 (YHS-140  32 GAL)\n4303544657 (YHS-140  190 GAL)\n"
+            "4303517252 (AYCHS-1320  1 GAL)\n4303544657 (AYCHS-1320  5 GAL)\n4303517252 (YHS-140  32 GAL)\n")
+    ex = {"ci_lines": [{"description": "SOC. PR (YHS-140)", "qty": 222, "unit_price": 995.0, "po_no": "4303517252"},
+                       {"description": "SOC. PR(AYCHS-1320)", "qty": 6, "unit_price": 1177.0, "po_no": "4303517252"}]}
+    assert E.split_by_po(ex, text) == 2
+    assert [(x["po_no"], x["qty"], x["amount"]) for x in ex["ci_lines"]] == [
+        ("4303517252", 32, 31840.0), ("4303544657", 190, 189050.0), ("4303517252", 1, 1177.0), ("4303544657", 5, 5885.0)]
