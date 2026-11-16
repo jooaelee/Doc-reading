@@ -90,6 +90,7 @@ body.cmp .items-wrap{max-height:calc(100vh - 250px)}
 body.cmp .zoom{display:flex;gap:4px;margin-left:auto}
 body.cmp #cmpNav{display:flex;gap:8px;align-items:center}
 body.cmp #cmpNav select{max-width:300px;padding:5px 8px}
+body.cmp #cmpNav #jobFind{width:160px;padding:5px 8px}
 body.cmp #allCols{display:inline-flex}
 body.cmp table.items th,body.cmp table.items td{padding:4px 6px}
 body.cmp table.items td[data-c="품명"]{white-space:normal;min-width:130px;max-width:320px}
@@ -198,7 +199,7 @@ body.cmp .banner .row{margin-top:6px}
             <div class="meta" id="resMeta"></div>
           </div>
           <div class="acts">
-            <span id="cmpNav"><select id="jobPick" class="in" aria-label="대조할 작업 고르기"></select><span class="small muted" id="cmpCount"></span></span>
+            <span id="cmpNav"><input id="jobFind" class="in" type="search" list="jobList" placeholder="BL 번호 찾기" aria-label="BL 번호로 작업 찾기" autocomplete="off"><datalist id="jobList"></datalist><select id="jobPick" class="in" aria-label="대조할 작업 고르기"></select><span class="small muted" id="cmpCount"></span></span>
             <button class="btn ghost" type="button" id="cmpBtn" title="원본과 표를 나란히 크게 두고 Main 칸만 봅니다">대조 모드</button>
             <span class="small muted" id="dirty"></span>
             <button class="btn ghost" type="button" data-act="retry">다시 읽기</button>
@@ -397,8 +398,23 @@ function drawNav() {
   const tag = j => j.confirmed ? '' : j.auto === true ? ' (자동 통과)' : j.verdict === '빠진 줄 의심' ? ' (빠진 줄 의심)' : '';
   $('#jobPick').innerHTML = (CUR && !js.some(j => j.id === CUR.id) ? '<option value="">작업 고르기</option>' : '') +
     js.map(j => `<option value="${j.id}" ${CUR && CUR.id === j.id ? 'selected' : ''}>${j.confirmed ? '✓ ' : ''}${esc(j.title || (j.files || [])[0] || '올린 서류')}${tag(j)}</option>`).join('');
+  $('#jobList').innerHTML = js.filter(j => j.title).map(j => `<option value="${esc(j.title)}">${esc(j.supplier || '')}${tag(j)}${j.confirmed ? ' 확정함' : ''}</option>`).join('');
 }
 $('#jobPick').onchange = e => { if (e.target.value) open(e.target.value); };
+// BL 번호로 바로 찾아 연다. 목록에서 고르거나 똑같이 치면 바로, 일부만 치고 Enter 면 그 글이 들어간 첫 작업(11/16)
+const blKey = s => String(s || '').toUpperCase().replace(/\s+/g, '');
+function findJob(q, exact) {
+  const k = blKey(q);
+  if (!k) return null;
+  const js = doneJobs().filter(j => j.title);
+  return js.find(j => blKey(j.title) === k) || (exact ? null : js.find(j => blKey(j.title).includes(k)));
+}
+$('#jobFind').oninput = e => { const j = findJob(e.target.value, true); if (j) { open(j.id); e.target.value = ''; } };
+$('#jobFind').onkeydown = e => {
+  if (e.key !== 'Enter') return;
+  const j = findJob(e.target.value, false);
+  if (j) { open(j.id); e.target.value = ''; } else toast('그 BL 번호의 작업을 찾지 못했습니다.', true);
+};
 // 확정하면 다음으로 사람이 볼 작업을 연다. 자동 통과 작업은 건너뛴다
 function nextJob() {
   const cur = JOBS.find(j => CUR && j.id === CUR.id), t = cur ? cur.created || 0 : 0;
