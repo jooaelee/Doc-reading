@@ -96,6 +96,46 @@ def _text_splits(text: str) -> dict:
     return out
 
 
+def _line_keys(x: dict) -> set:
+    keys = {_key_desc(x.get(k)) for k in ("sap_code", "material_code", "part_no") if x.get(k)}
+    head = re.split(r"[/\s]", str(x.get("description") or "").strip())[0]
+    if len(_key_desc(head)) >= 4:
+        keys.add(_key_desc(head))
+    return keys - {""}
+
+
+def drop_priceless_twins(ex: dict) -> int:
+    """단가와 금액이 없는 인보이스 줄이 값이 있는 다른 줄과 같은 줄이면 뺀다. 뺀 줄 수를 낸다.
+
+    JX: 인보이스 쪽 말고 품목 상세 쪽(긴 품명, 단가 없음)도 인보이스로 갈려, 같은 PO 같은 품목이 두 번 나왔다
+    (10월 NEC50215406 10줄 중 4줄, NEC50642314 4줄 중 1줄, 사람이 지움. 11/17).
+    🔴 같은 인보이스, 같은 PO, 같은 수량이고 코드나 품명 첫 낱말이 같을 때만. 값이 있는 쌍 하나에 한 줄만 뺀다.
+       무상 품목(단가 없음)은 PO 나 수량이나 품목이 달라 남는다.
+    """
+    ci = ex.get("ci_lines") or []
+
+    def priced(x):
+        return _num(x.get("unit_price")) is not None or _num(x.get("amount")) is not None
+
+    paid = [x for x in ci if isinstance(x, dict) and priced(x)]
+    used, drop = set(), set()
+    for i, x in enumerate(ci):
+        if not isinstance(x, dict) or priced(x) or not str(x.get("po_no") or "").strip():
+            continue
+        for k, y in enumerate(paid):
+            if id(y) in used:
+                continue
+            if (str(y.get("invoice_no") or "") == str(x.get("invoice_no") or "")
+                    and str(y.get("po_no") or "").strip() == str(x.get("po_no") or "").strip()
+                    and _num(y.get("qty")) == _num(x.get("qty")) and _line_keys(x) & _line_keys(y)):
+                used.add(id(y))
+                drop.add(i)
+                break
+    if drop:
+        ex["ci_lines"] = [x for i, x in enumerate(ci) if i not in drop]
+    return len(drop)
+
+
 def split_by_po(ex: dict, text: str = "") -> int:
     """인보이스 한 줄의 수량을 PO 마다 나눠 적은 줄(po_split)을 PO 마다 한 줄로 나눈다. 나눈 줄 수를 낸다.
 
@@ -415,6 +455,9 @@ def read_bundle(pdfs, name="올린 서류", on_step=None, model=None, claude_bin
             po = header_po(ex, all_text)
             if po:
                 step(f"서류 머리의 PO {po} 값을 품목 줄에 넣음", True, 0)
+            n_twin = drop_priceless_twins(ex)
+            if n_twin:
+                step(f"단가 없이 한 번 더 읽힌 같은 품목 줄 {n_twin}개를 뺌", True, 0)
             trace = wuxi_rules.apply_post(ex, supplier)
             if trace:
                 step(f"규칙으로 {len(trace)}칸을 채우거나 고침", True, 0)

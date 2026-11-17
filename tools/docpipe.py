@@ -212,6 +212,17 @@ AIR_WORDS = re.compile(r"air waybill|airport of|\(hawb\)|\(mawb\)|flight/date|ai
 _HINT_WORDS = None
 
 
+def unshiftable(t):
+    """한 폭으로 되돌리면 멀쩡한 글이 되는 쪽인지. 되돌린 글이 더는 밀린 글로 안 보이는 폭이 하나라도 있으면 참."""
+    for off in list(range(-40, 41)) + [-817, 817]:
+        if off == 0:
+            continue
+        u = "".join(c if c.isspace() else (chr(ord(c) - off) if 32 <= ord(c) - off < 127 else c) for c in t)
+        if not is_garbled(u):
+            return True
+    return False
+
+
 def unshift_hint(t):
     """밀린 쪽의 종류를 가르려고 되돌려 본다. 값을 읽는 데는 안 쓴다(숫자가 사라진다).
 
@@ -280,7 +291,14 @@ def classify(page: Page):
             and not re.search(r"air waybill|airport of departure|bill of lading no|b/l no", t):
         best = "OTHER"                    # 위험물 신고서. 항공과 해상 낱말이 다 찍힌다
     page.kind = best if page.score.get(best, 0) >= floor else "OTHER"
-    page.sea = page.kind == "AWB" and bool(SEA_WORDS.search(t) or re.search(r"billoflading|b/lno|checkb/l|oceanvessel|multimodaltransport|onboarddate", t_ns)) and not AIR_WORDS.search(t)
+    if page.garbled and page.kind == "OTHER" and not unshiftable(page.text):
+        # 🔴 글꼴이 글자 번호(glyph id)로 찍혀 한 폭으로 밀린 것이 아니면(PSK: 「dĞƌŵƐ」 가 Terms, 글자마다 폭이 다름)
+        #    되돌려도 낱말이 안 나와 「기타」 로 버려졌다. 인보이스를 못 찾아 품목이 0줄(10월 PSK 10건, 11/17).
+        #    어느 폭으로도 되돌릴 수 없는 쪽만 스캔 쪽처럼 OCR 로 읽어 종류를 다시 가른다(route_scans).
+        #    한 폭으로 밀린 뒷장(낱말 없는 인보이스 둘째 장)은 그대로 「기타」 로 두어 앞 서류에 붙인다
+        page.kind = "SCAN"
+        return page
+    page.sea =page.kind == "AWB" and bool(SEA_WORDS.search(t) or re.search(r"billoflading|b/lno|checkb/l|oceanvessel|multimodaltransport|onboarddate", t_ns)) and not AIR_WORDS.search(t)
     return page
 
 # ---------- 2. 모델 입력 ----------
