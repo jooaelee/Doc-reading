@@ -488,3 +488,29 @@ def test_LOT_으로_나눈_줄과_포장명세서_줄_수를_견준다():
     assert E.lot_covers(ex)                              # 품명마다 LOT 수량 합이 맞아 줄 수 견주기를 갈음한다
     ex["pl_lines"].append({"description": "TARF-TAI-1006 1.4CP (LOT: 60906709)", "qty": 24})
     assert not E.lot_covers(ex)                          # 인보이스에 없는 LOT 줄이 있으면 갈음하지 않는다
+
+
+def test_단가_없이_한_번_더_읽힌_같은_품목_줄은_뺀다():
+    """JX NEC50642314: 품목 상세 쪽이 인보이스로 갈려 같은 PO 같은 품목이 단가 없이 한 번 더 나왔다(사람이 지움)."""
+    ex = {"ci_lines": [
+        {"invoice_no": "S1", "po_no": "C20260608007SKH", "part_no": "TA0108", "description": "TA0108/Ta Parts Coil", "qty": 5, "unit_price": 1990200},
+        {"invoice_no": "S1", "po_no": "C20260804010SKH", "part_no": "R3133208", "description": "R3133208/Ti Target", "qty": 2, "unit_price": 323900},
+        {"invoice_no": "S1", "po_no": "C20260804011SKH", "part_no": "R3133208", "description": "R3133208/Ti Target", "qty": 1, "unit_price": 323900},
+        {"invoice_no": "S1", "po_no": "C20260804011SKH", "description": "R3133208/Ti Target φ15.281\"(0.5\"t)DB NM", "qty": 1},
+        {"invoice_no": "S1", "po_no": "", "description": "DRUM (NCV)", "qty": 4}]}
+    assert E.drop_priceless_twins(ex) == 1
+    assert [x["description"][:12] for x in ex["ci_lines"]] == ["TA0108/Ta Pa", "R3133208/Ti ", "R3133208/Ti ", "DRUM (NCV)"]
+
+
+def test_무상_줄은_값이_있는_줄과_PO_나_수량이_다르면_남긴다():
+    ex = {"ci_lines": [{"invoice_no": "S1", "po_no": "A", "part_no": "R1", "description": "R1/x", "qty": 2, "unit_price": 1},
+                       {"invoice_no": "S1", "po_no": "A", "part_no": "R1", "description": "R1/x", "qty": 3}]}
+    assert E.drop_priceless_twins(ex) == 0
+
+
+def test_가르지_못한_밀린_글꼴_쪽은_OCR_로_돌린다():
+    """PSK: 글꼴이 글자 번호로 찍혀 한 폭으로 되돌릴 수 없는 쪽이 「기타」 로 버려져 품목이 0줄이었다."""
+    import docpipe
+    p = docpipe.Page("x.pdf", 2, "dĞƌŵƐŽĨĚĞůŝǀĞƌǇĂŶĚƉĂǇŵĞŶƚ\nƵǇĞƌ ^ĂŵĞĂƐĐŽŶƐŝŐŶĞĞ\nKƚŚĞƌƌĞĨĞƌĞŶĐĞ\n", 0)
+    p.garbled = True
+    assert docpipe.classify(p).kind == "SCAN"
