@@ -678,8 +678,9 @@ def list_jobs(request: Request) -> JSONResponse:
         return _need_login()
     STORE.load_all()
     rows = sorted((_summary(j) for j in STORE.jobs.values()), key=lambda r: r["created"] or 0, reverse=True)
-    # 월 500건을 넣으면 100건으로는 대조할 작업이 목록에서 잘린다(11/14)
-    return JSONResponse({"jobs": rows[:1000]}, headers=NO_STORE)
+    # 🔴 상한을 두면 오래된 작업이 목록과 BL 찾기에서 사라진다. 100건(11/14), 1000건(11/17, 1073건 중 73건 숨음)
+    #    모두 금방 넘었다. 1000건이 0.2초, 270KB라 전부 보낸다
+    return JSONResponse({"jobs": rows}, headers=NO_STORE)
 
 
 @app.post("/api/jobs")
