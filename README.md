@@ -6,13 +6,15 @@
 
 > **넘겨받은 분은** 인수인계서 [docs/handover/Wuxi_OCR_인수인계서_v1.0.0.pdf](docs/handover/Wuxi_OCR_인수인계서_v1.0.0.pdf) 부터 읽습니다(1부 사람이 읽는 운영 안내, 2부 AI 조수 지침). 지금 어디까지 됐는지는 [docs/진행-상황.md](docs/진행-상황.md).
 
+> **갈라진 판.** 이 저장소(GitHub `jooaelee/Doc-reading`)는 2026-11-19 에 `ljwon87ssu-cmyk/wuxi-ocr` 의 d79e1c8 판에서 갈라져 따로 고칩니다. 원래 저장소에 그 뒤 들어간 수정은 들어 있지 않고, 이 저장소의 수정도 원래 저장소에 저절로 가지 않습니다.
+
 ## 5분 시작 (자기 Claude 계정으로)
 
 1. 파이썬 3.11 이상과 Claude Code 를 설치합니다.
    - Windows(PowerShell): `irm https://claude.ai/install.ps1 | iex`
    - 맥, 리눅스: `curl -fsSL https://claude.ai/install.sh | bash`
 2. 터미널에서 `claude` 를 실행해 자기 계정으로 로그인하고 끝냅니다. 판독은 이 계정으로 돕니다.
-3. 저장소를 받습니다: `git clone https://github.com/commet/wuxi-ocr`
+3. 저장소를 받습니다: `git clone https://github.com/jooaelee/Doc-reading wuxi-ocr`
 4. 띄웁니다. Windows 는 `start.bat` 을 두 번 누르고, 맥과 리눅스는 `./start.sh` 를 실행합니다.
    처음에는 가상환경과 패키지를 만들고, 운영 화면과 고객 화면 비밀번호를 묻고, Claude 로그인을 확인한 뒤 브라우저를 엽니다.
 5. 고객 화면은 http://127.0.0.1:8767/ , 운영 화면은 http://127.0.0.1:8767/admin 입니다.
@@ -101,7 +103,7 @@ import wuxi_mount; wuxi_mount.attach(app, "/wuxi")
 
 ## 사내 Git 맞추기
 
-이 저장소(GitHub `commet/wuxi-ocr`)가 원본입니다. 사내 Git(`DT/KEROL_FMS_DOC_AI`)의 `wuxi_ocr/` 폴더는 `tools/sync_company_git.sh` 로 이 저장소의 판으로 덮어씁니다. 순서는 [docs/사내-Git-맞추기.md](docs/사내-Git-맞추기.md) 에 있습니다.
+사내 Git(`DT/KEROL_FMS_DOC_AI`)의 `wuxi_ocr/` 폴더는 `tools/sync_company_git.sh` 로 GitHub 저장소 판으로 덮어씁니다. 이 저장소(`jooaelee/Doc-reading`)는 원래 저장소(`ljwon87ssu-cmyk/wuxi-ocr`)에서 갈라진 판이므로, 사내 판을 어느 저장소로 맞출지 정하기 전에는 이 판으로 덮어쓰지 않습니다. 덮어쓰면 원래 저장소에만 있는 수정이 사내 판에서 사라집니다. 순서는 [docs/사내-Git-맞추기.md](docs/사내-Git-맞추기.md) 에 있습니다.
 
 ## 이관 기록
 

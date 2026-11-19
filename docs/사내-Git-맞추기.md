@@ -1,6 +1,8 @@
 # 사내 Git 맞추기
 
-우시 판독의 원본은 이 저장소(GitHub `commet/wuxi-ocr`)입니다. 사내 Git `DT/KEROL_FMS_DOC_AI` 의 master 갈래에 있는 `wuxi_ocr/` 폴더는 이 저장소의 판을 그대로 받습니다.
+> 이 저장소(GitHub `jooaelee/Doc-reading`)는 원래 저장소(`ljwon87ssu-cmyk/wuxi-ocr`)에서 2026-11-19 에 갈라진 판입니다. 사내 판을 어느 저장소로 맞출지 정하기 전에는 이 판으로 덮어쓰지 않습니다. 덮어쓰면 원래 저장소에만 있는 수정이 사내 판에서 사라집니다.
+
+우시 판독의 원본은 GitHub 저장소입니다. 사내 Git `DT/KEROL_FMS_DOC_AI` 의 master 갈래에 있는 `wuxi_ocr/` 폴더는 이 저장소의 판을 그대로 받습니다.
 
 - 우시 코드는 GitHub 에서만 고칩니다. 사내 `wuxi_ocr/` 를 직접 고치면 다음 맞추기 때 덮어써져 사라집니다.
 - 맞추기는 `wuxi_ocr/` 폴더만 바꿉니다. docagent(`src/docai`)와 사내 저장소의 다른 파일은 건드리지 않습니다.
@@ -14,7 +16,7 @@
 | 사내망에 붙은 PC | 사내 Git 에 올릴 권한이 있는 계정(노트북 또는 .65) |
 | Git Bash | Windows 는 Git for Windows 에 들어 있습니다. 아래 명령은 모두 Git Bash 에서 실행합니다 |
 | 사내 저장소 사본 | 예: `C:/Users/SAMSUNG/KEROL_FMS_DOC_AI`. 어느 갈래에 있든, 고치던 것이 있든 그대로 둡니다 |
-| 이 저장소 사본 | `git clone https://github.com/commet/wuxi-ocr` |
+| 이 저장소 사본 | `git clone https://github.com/jooaelee/Doc-reading wuxi-ocr` |
 
 ## 1. 비교 (처음 한 번은 꼭)
 

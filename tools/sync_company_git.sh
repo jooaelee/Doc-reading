@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# GitHub commet/wuxi-ocr 의 판으로 사내 Git(DT/KEROL_FMS_DOC_AI)의 wuxi_ocr/ 폴더를 통째로 맞춘다.
+# 이 저장소(GitHub) 판으로 사내 Git(DT/KEROL_FMS_DOC_AI)의 wuxi_ocr/ 폴더를 통째로 맞춘다.
 #
 #   tools/sync_company_git.sh <사내 저장소 경로> --compare   먼저 비교만(아무것도 안 바꿈)
 #   tools/sync_company_git.sh <사내 저장소 경로> [--ref origin/main] [--branch master] [--push]
@@ -52,6 +52,9 @@ fi
 SHA="$(git -C "$SRC" rev-parse --verify -q "$REF^{commit}")" || die "GitHub 판 $REF 를 찾지 못했습니다"
 git -C "$SRC" cat-file -e "$SHA:tools/wuxi_paths.py" 2>/dev/null || die "$REF 는 우시 저장소 판이 아닙니다"
 TITLE="$(git -C "$SRC" log -1 --format=%s "$SHA")"
+# 커밋 메시지에 적을 원본 주소. 저장소가 갈라지거나 옮겨져도 맞게 origin 에서 읽는다
+URL="$(git -C "$SRC" remote get-url origin 2>/dev/null | sed -E 's#^git@github.com:#https://github.com/#; s#\.git$##; s#//[^/@]*@#//#')"
+NAME="${URL#https://github.com/}"
 
 # 2. 사내 판
 git -C "$DST" rev-parse --git-dir >/dev/null 2>&1 || die "$DST 가 Git 저장소가 아닙니다"
@@ -139,8 +142,8 @@ git -c core.quotepath=off -C "$WT" diff --cached --stat=100 | tail -n 40
 [ -z "$kept" ] || echo "사내에서만 추적하던 비밀번호 해시(${kept# })는 남겼습니다."
 
 git -C "$WT" commit -q \
-  -m "$SUB: GitHub commet/wuxi-ocr ${SHA:0:8} 판으로 맞춘다" \
-  -m "원본: https://github.com/commet/wuxi-ocr/commit/$SHA
+  -m "$SUB: GitHub ${NAME:-우시 저장소} ${SHA:0:8} 판으로 맞춘다" \
+  -m "원본: ${URL:+$URL/commit/}$SHA
 마지막 커밋: $TITLE
 
 $SUB/ 폴더만 바꿨다. 되돌리려면 이 커밋을 revert 한다."
