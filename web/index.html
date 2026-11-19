@@ -48,7 +48,7 @@ table.items td.ruled{box-shadow:inset 3px 0 0 var(--rule)}
 table.items tr.gap td.no{box-shadow:inset 3px 0 0 var(--warn)}
 table.items tr.added td{background:#f4f8ff}
 table.items tr.sel td{background:var(--accent-soft)}
-table.items td.no{color:var(--muted);font-variant-numeric:tabular-nums;position:sticky;left:0;background:#fff;z-index:1}
+table.items td.no{color:var(--muted);font-variant-numeric:tabular-nums;position:sticky;left:0;background:#fff;z-index:1;width:1%;white-space:nowrap}
 table.items tr.sel td.no{background:var(--accent-soft)}
 table.items th.no{position:sticky;left:0;z-index:2}
 table.items .del{border:0;background:none;color:var(--muted);cursor:pointer;padding:0 4px;font-size:14px;line-height:1;visibility:hidden}
@@ -545,14 +545,15 @@ function drawAside() {
 function drawTable() {
   const cs = cols(), only = P.cols.gerp_only || [];
   const label = colLabel;
-  let h = '<thead><tr><th class="no">줄</th>' + cs.map(c => `<th title="${esc(c)}">${esc(label(c))}</th>`).join('') + '</tr></thead><tbody>';
+  // 맨 앞 칸은 행 번호 없이 줄 지우기(×)와 PL 표시만 둔다(11/19 사용자 결정). 인보이스 안 차례는 「줄」 열에 있다
+  let h = '<thead><tr><th class="no" aria-label="줄 지우기"></th>' + cs.map(c => `<th title="${esc(c)}">${esc(label(c))}</th>`).join('') + '</tr></thead><tbody>';
   P.items.forEach((r, k) => {
     const gaps = gapsOf(r), o = r._i == null ? null : ORIG[r._i], rl = r._rules || {};
     // 확인할 칸이 없고 고친 칸도 없는 줄. 대조 모드에서 접는다. 사람이 더한 줄과 PL 줄은 접지 않는다
     const calm = CMP && !ALL_COLS && o && r['출처'] !== 'PL'
       && cs.every(c => { const v = r[c] == null ? '' : r[c]; return String(v) === String(o[c] ?? '') && !flagged(r, c); });
     h += `<tr data-k="${k}" class="${gaps.length ? 'gap' : ''} ${r._i == null ? 'added' : ''} ${k === SEL ? 'sel' : ''} ${calm ? 'calm' : ''}" ${gaps.length ? `title="비어 있음: ${esc(gaps.join(', '))}"` : ''}>
-      <td class="no"><button class="del" type="button" data-del="${k}" aria-label="${k + 1}번째 줄 지우기" title="이 줄 지우기">×</button>${k + 1}${CMP && !ALL_COLS && r['출처'] === 'PL' ? '<span class="pl" title="포장명세서에만 있는 줄">PL</span>' : ''}</td>` + cs.map(c => {
+      <td class="no"><button class="del" type="button" data-del="${k}" aria-label="${k + 1}번째 줄 지우기" title="이 줄 지우기">×</button>${CMP && !ALL_COLS && r['출처'] === 'PL' ? '<span class="pl" title="포장명세서에만 있는 줄">PL</span>' : ''}</td>` + cs.map(c => {
         const v = r[c] == null ? '' : r[c], ed = o && String(v) !== String(o[c] ?? '');
         const ck = CMP && !ed ? ckClass(r, c) : null;
         const cls = [only.includes(c) ? 'gerp' : '', ed ? 'edited' : '', rl[c] ? 'ruled' : '', ck ? ck[0] : ''].filter(Boolean).join(' ');
