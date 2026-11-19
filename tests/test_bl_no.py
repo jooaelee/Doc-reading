@@ -114,3 +114,41 @@ def test_엑셀에_나가고_더한_줄도_채우며_학습에는_안_섞인다(
     assert [ws.cell(row=i, column=col).value for i in (2, 3)] == ["바꾼 값", "HDLCA125978"]
     assert "BL No." in [c.value for c in wb["Main 항목"][1]]
     assert job["edits"]["cells"] == 0 and job["edits"]["added"] == 1     # BL No. 가 달라도 칸 수정이 아니다
+
+
+def _pdf_bytes(text="X"):
+    doc = pymupdf.open()
+    doc.new_page().insert_text((72, 72), text)
+    b = doc.tobytes()
+    doc.close()
+    return b
+
+
+def test_BL_마다_묶는다():
+    import wuxi_web
+    g = wuxi_web.bl_groups(["HDLCA1.pdf", "NEC2 CI.pdf", "HDLCA1 PL.pdf", "NEC2 PL.pdf", "MTOPA3.pdf"])
+    assert g == [("HDLCA1", [0, 2]), ("NEC2", [1, 3]), ("MTOPA3", [4])]
+
+
+def test_여러_BL_을_한_번에_올리면_BL_마다_작업이_생긴다(env, monkeypatch):
+    web, local = env
+    monkeypatch.setattr(web.STORE, "start", lambda: None)        # 시험에서는 판독(AI)을 돌리지 않는다
+    files = [("pdf", (n, _pdf_bytes(n), "application/pdf"))
+             for n in ("MTOPA2611006.pdf", "NEC51214715 CI.pdf", "NEC51214715 PL.pdf", "NEK18551621.pdf")]
+    r = local.post("/api/jobs", files=files)
+    assert r.status_code == 200, r.text
+    made = r.json()["jobs"]
+    assert [(m["bl"], m["files"]) for m in made] == [("MTOPA2611006", 1), ("NEC51214715", 2), ("NEK18551621", 1)]
+    assert r.json()["job"] == made[0]["job"]
+    jobs = [web.STORE.jobs[m["job"]] for m in made]
+    assert [j["case"] for j in jobs] == ["MTOPA2611006", "NEC51214715", "NEK18551621"]
+    assert jobs[1]["orig_names"] == ["NEC51214715 CI.pdf", "NEC51214715 PL.pdf"]
+    assert jobs[0]["created"] < jobs[1]["created"] < jobs[2]["created"]         # 올린 차례대로 읽는다
+
+
+def test_PDF_가_아닌_파일이_하나라도_있으면_아무_작업도_안_만든다(env, monkeypatch):
+    web, local = env
+    monkeypatch.setattr(web.STORE, "start", lambda: None)
+    r = local.post("/api/jobs", files=[("pdf", ("A1111.pdf", _pdf_bytes(), "application/pdf")),
+                                       ("pdf", ("B2222.pdf", b"not a pdf", "application/pdf"))])
+    assert r.status_code == 400 and not web.STORE.jobs

@@ -70,7 +70,8 @@ PW_ENV = {"user": "WUXI_PASSWORD_HASH", "admin": "WUXI_ADMIN_HASH"}
 JOB_ID = re.compile(r"^[0-9a-f]{32}$")
 MAX_FILES = 30
 MAX_MB = 40
-MAX_QUEUE = 8
+# 🔴 올리기는 BL 한 장이 한 작업이다(11/19). 파일 30개를 한 번에 올리면 작업이 30개 생길 수 있어 줄을 그만큼 받는다
+MAX_QUEUE = 40
 SESSION_HOURS = 12
 COOKIE = "wuxi_session"
 ADMIN_COOKIE = "wuxi_admin"
@@ -720,31 +721,52 @@ async def create_job(request: Request, pdf: list[UploadFile]) -> JSONResponse:
         return _bad("PDF 파일을 골라 주십시오.")
     if len(files) > MAX_FILES:
         return _bad(f"한 번에 {MAX_FILES}개까지 올릴 수 있습니다.")
-    if STORE.waiting() >= MAX_QUEUE:
-        return _bad("앞에 기다리는 작업이 많습니다. 잠시 뒤 올려 주십시오.", 429)
-    STORE.cleanup()
-    jid = uuid.uuid4().hex
-    d = STORE.dir(jid)
-    d.mkdir(parents=True, exist_ok=True)
-    names, orig_names = [], []
-    for i, f in enumerate(files):
+    # 다 읽고 검사한 뒤에 작업을 만든다. 중간에 한 파일이 틀리면 아무 작업도 남기지 않는다
+    got = []
+    for f in files:
         data = await f.read(MAX_MB * 1024 * 1024 + 1)
         base = Path(f.filename or "").name
         if len(data) > MAX_MB * 1024 * 1024:
-            shutil.rmtree(d, ignore_errors=True)
             return _bad(f"파일 하나는 {MAX_MB}MB 까지입니다: {base[:60]}")
         if not data.lstrip()[:5].startswith(b"%PDF"):
-            shutil.rmtree(d, ignore_errors=True)
             return _bad(f"PDF 가 아닌 파일이 있습니다: {base[:60]}")
-        name = stored_name(i, base)
-        (d / name).write_bytes(data)
-        names.append(name)
-        orig_names.append(base[:200] or name)
-    job = {"id": jid, "status": "queued", "created": time.time(), "names": names, "orig_names": orig_names,
-           "pdfs": [str(d / n) for n in names], "steps": [], "payload": None, "error": None}
-    STORE.submit(job)
-    log_access(request, "upload", jid, note=f"{len(names)} files")
-    return JSONResponse({"job": jid})
+        got.append((base, data))
+    groups = bl_groups([b for b, _ in got])
+    if STORE.waiting() + len(groups) > MAX_QUEUE:
+        return _bad(f"앞에 기다리는 작업이 많습니다(BL {len(groups)}건을 더하면 {MAX_QUEUE}건을 넘습니다). 잠시 뒤 올려 주십시오.", 429)
+    STORE.cleanup()
+    made, now = [], time.time()
+    for k, (bl, idx) in enumerate(groups):
+        jid = uuid.uuid4().hex
+        d = STORE.dir(jid)
+        d.mkdir(parents=True, exist_ok=True)
+        names, orig_names = [], []
+        for i, j in enumerate(idx):
+            base, data = got[j]
+            name = stored_name(i, base)
+            (d / name).write_bytes(data)
+            names.append(name)
+            orig_names.append(base[:200] or name)
+        # 같은 시각이면 목록과 줄의 차례가 뒤바뀔 수 있어 1밀리초씩 띄운다
+        job = {"id": jid, "status": "queued", "created": now + k / 1000, "names": names, "orig_names": orig_names,
+               "pdfs": [str(d / n) for n in names], "steps": [], "payload": None, "error": None,
+               "title": bl, "case": bl, "source": "upload"}
+        STORE.submit(job)
+        log_access(request, "upload", jid, note=f"{bl} {len(names)} files")
+        made.append({"job": jid, "bl": bl, "files": len(names)})
+    return JSONResponse({"job": made[0]["job"], "jobs": made})
+
+
+def bl_groups(names: list[str]) -> list[tuple[str, list[int]]]:
+    """올린 파일을 BL 마다 묶는다. BL 한 장이 한 작업이다(11/19). BL No. 는 파일 이름에서 확장자를 빼고 첫 낱말
+    (gerp_xlsx.bl_no_of_file)이므로, 「HDLCA125978 CI.pdf」 와 「HDLCA125978 PL.pdf」 는 한 작업이 된다.
+    올린 차례를 지킨다. 이름에서 BL No. 를 못 내면 그 파일 하나를 한 작업으로 둔다."""
+    import gerp_xlsx
+    out: dict[str, list[int]] = {}
+    for i, n in enumerate(names):
+        key = gerp_xlsx.bl_no_of_file(n) or f"#{i}"
+        out.setdefault(key, []).append(i)
+    return [(k if not k.startswith("#") else Path(names[v[0]]).stem, v) for k, v in out.items()]
 
 
 @app.get("/api/jobs/{jid}")
