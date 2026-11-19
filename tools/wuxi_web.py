@@ -405,7 +405,8 @@ def run(job: dict, store: Store) -> str | None:
     store.save(job)
     try:
         res = wuxi_engine.read_bundle(job["pdfs"], name=job.get("title") or "올린 서류", on_step=on_step)
-        job["payload"] = wuxi_engine.payload(job.get("title") or "올린 서류", job["pdfs"], res)
+        job["payload"] = wuxi_engine.payload(job.get("title") or "올린 서류", job["pdfs"], res,
+                                             files=_files(job), case=job.get("case") or "")
         _cell_check(job)
         job.update(status="done", wall=round(time.time() - job["started"], 1), supplier=res.get("supplier"),
                    supplier_name=res.get("supplier_name"), edits=None, review=None, confirmed=None)
@@ -420,7 +421,12 @@ def run(job: dict, store: Store) -> str | None:
                        steps=[{"text": f"AI 사용 한도에 걸려 쉬는 중입니다. {again}에 다시 읽습니다", "done": False, "sec": None}])
             store.save(job)
             return LIMITED
-        job.update(status="error", error=wuxi_engine.friendly_error(str(e)), wall=round(time.time() - job["started"], 1))
+        # 화면에는 짧은 문장만 보인다. 어디서 났는지는 job.json 의 traceback 과 서버 창에 남긴다
+        import traceback
+        tb = traceback.format_exc()
+        sys.stderr.write(f"작업 {job.get('id')} 판독 오류\n{tb}")
+        job.update(status="error", error=wuxi_engine.friendly_error(str(e)), traceback=tb[-4000:],
+                   wall=round(time.time() - job["started"], 1))
     store.save(job)
     return None
 
@@ -460,6 +466,7 @@ def _cell_check_now(job: dict) -> None:
                 docs.append((os.path.basename(p), None))
         try:
             job["payload"]["cellcheck"] = cell_check.check_items(job["payload"].get("items"), docs, job["payload"].get("pages"))
+            _fill_bl_no(job)      # 원문 대조가 찾은 줄 자리(_at)로 파일이 여럿인 묶음의 BL No. 를 다시 고른다
             job["payload"]["triage"] = cell_check.triage(job["payload"].get("items"),
                                                          (job["payload"].get("completeness") or {}).get("verdict"))
             job["payload"]["cellcheck_v"] = cell_check.VERSION
@@ -558,7 +565,27 @@ def stored_name(i: int, base: str) -> str:
 
 
 def _files(job: dict) -> list[str]:
+    """올린 사람이 고른 파일 이름. 저장 이름(00_xxx.pdf)은 특수 문자를 바꿔 두므로 원래 이름을 따로 둔다."""
+    orig = job.get("orig_names")
+    if isinstance(orig, list) and len(orig) == len(job.get("names") or []):
+        return [str(x) for x in orig]
     return [re.sub(r"^\d\d_", "", n) for n in job.get("names") or []]
+
+
+def _fill_bl_no(job: dict) -> bool:
+    """화면 줄의 BL No.(파일 이름). 이 열이 생기기 전에 읽은 작업도 처음 열 때 채운다. AI 를 부르지 않는다."""
+    p = job.get("payload") or {}
+    items = p.get("items") or []
+    if not items:
+        return False
+    import wuxi_engine
+    before = [r.get("BL No.") for r in items if isinstance(r, dict)]
+    wuxi_engine.fill_bl_no(items, job.get("pdfs") or [], _files(job), p.get("pages"), job.get("case") or "")
+    cols = p.get("cols") or {}
+    if isinstance(cols.get("extra"), list) and "BL No." not in cols["extra"]:
+        import gerp_xlsx
+        cols["extra"] = list(gerp_xlsx.EXTRA_ITEM_COLS)
+    return before != [r.get("BL No.") for r in items if isinstance(r, dict)]
 
 
 _FORMULA = re.compile(r"^[=+@\t\r]")
@@ -699,7 +726,7 @@ async def create_job(request: Request, pdf: list[UploadFile]) -> JSONResponse:
     jid = uuid.uuid4().hex
     d = STORE.dir(jid)
     d.mkdir(parents=True, exist_ok=True)
-    names = []
+    names, orig_names = [], []
     for i, f in enumerate(files):
         data = await f.read(MAX_MB * 1024 * 1024 + 1)
         base = Path(f.filename or "").name
@@ -712,8 +739,9 @@ async def create_job(request: Request, pdf: list[UploadFile]) -> JSONResponse:
         name = stored_name(i, base)
         (d / name).write_bytes(data)
         names.append(name)
-    job = {"id": jid, "status": "queued", "created": time.time(), "names": names, "pdfs": [str(d / n) for n in names],
-           "steps": [], "payload": None, "error": None}
+        orig_names.append(base[:200] or name)
+    job = {"id": jid, "status": "queued", "created": time.time(), "names": names, "orig_names": orig_names,
+           "pdfs": [str(d / n) for n in names], "steps": [], "payload": None, "error": None}
     STORE.submit(job)
     log_access(request, "upload", jid, note=f"{len(names)} files")
     return JSONResponse({"job": jid})
@@ -728,6 +756,10 @@ def get_job(jid: str, request: Request) -> JSONResponse:
         return _bad("작업을 찾을 수 없습니다. 보관 기간이 지났을 수 있습니다.", 404)
     if job.get("status") == "done" and job.get("payload") and job["payload"].get("cellcheck_v") != _cellcheck_version():
         _cell_check(job, only_stale=True)     # 원문 대조가 생기기 전이나 대조 방식이 바뀌기 전에 읽은 작업은 처음 열 때 한 번 대조해 둔다(AI 를 부르지 않음)
+    if job.get("status") == "done" and any(isinstance(r, dict) and "BL No." not in r for r in (job.get("payload") or {}).get("items") or []):
+        with STORE.lock:
+            if _fill_bl_no(job):
+                STORE.save(job)
     # confirmed, review 도 낸다. 빠지면 다시 연 화면에 「확정함」이 안 보이고 판정 단추가 다시 뜬다(11/11)
     out = {k: job.get(k) for k in ("id", "status", "steps", "wall", "error", "payload", "created", "confirmed", "review")}
     out["files"] = _files(job)
@@ -803,6 +835,11 @@ async def xlsx(jid: str, request: Request) -> Response:
                 STORE.save(job)
         except Exception as e:     # 학습 기록이 실패해도 엑셀은 낸다
             log_access(request, "learn-error", jid, 500, str(e))
+    # 사람이 더한 줄은 BL No. 가 비어 있다. 파일 이름이 한 BL 로만 나오는 묶음이면 그 값으로 채운다(화면에서는 못 고치는 칸)
+    import gerp_xlsx
+    one = sorted({gerp_xlsx.bl_no_of_file(f) for f in _files(job)} - {""})
+    if len(one) == 1:
+        items = [({**x, "BL No.": one[0]} if not str(x.get("BL No.") or "").strip() else x) for x in items]
     t = {"head": [body.get("head") if isinstance(body.get("head"), dict) else p["head"]],
          "items": [x for x in items[:5000] if isinstance(x, dict)],
          "inv": body.get("inv") if isinstance(body.get("inv"), list) else p["inv"],

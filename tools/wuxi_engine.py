@@ -548,8 +548,38 @@ def _find_rects(docs, text):
     return hits
 
 
-def payload(name, pdfs, res) -> dict:
-    """화면에 줄 값. 줄마다 원본에서 찾을 자리(_hl)를 붙인다."""
+def fill_bl_no(items, pdfs, files, pages, case="") -> None:
+    """줄마다 BL No. 를 넣는다. 서류에서 읽지 않고 올린 PDF 파일 이름에서 낸다(gerp_xlsx.bl_no_of_file).
+
+    파일들이 모두 같은 BL No. 를 주면 그 값이다. 여럿이면 원본에서 그 줄이 찍힌 파일(_at, 없으면 _hl 의 첫 자리가
+    몇 번째 파일인지)로 고르되 인보이스 쪽을 먼저 본다. 하나로 못 좁히면 건 이름(일괄 등록한 폴더 이름), 그것도
+    없으면 묶음의 BL No. 를 모두 적는다. files 는 사람이 올린 원래 파일 이름(pdfs 와 같은 차례)이다.
+    """
+    if not files or (pdfs and len(files) != len(pdfs)):
+        files = [os.path.basename(p) for p in pdfs]
+    bls = [gerp_xlsx.bl_no_of_file(f) for f in files]
+    uniq = sorted({b for b in bls if b})
+    stored = {os.path.basename(p): i for i, p in enumerate(pdfs)}
+    kind = {(stored.get(pg.get("file")), pg.get("no")): pg.get("kind") for pg in pages or [] if isinstance(pg, dict)}
+    for row in items or []:
+        if not isinstance(row, dict):
+            continue
+        if len(uniq) <= 1:
+            row["BL No."] = uniq[0] if uniq else (case or "")
+            continue
+        boxes = [b for b in list((row.get("_at") or {}).values()) + list(row.get("_hl") or [])
+                 if isinstance(b, (list, tuple)) and len(b) >= 2 and isinstance(b[0], int) and 0 <= b[0] < len(bls)]
+        got = ""
+        for cand in ([b[0] for b in boxes if kind.get((b[0], b[1])) == "CI"], [b[0] for b in boxes]):
+            names = {bls[i] for i in cand if bls[i]}
+            if len(names) == 1:
+                got = names.pop()
+                break
+        row["BL No."] = got or case or ", ".join(uniq)
+
+
+def payload(name, pdfs, res, files=None, case="") -> dict:
+    """화면에 줄 값. 줄마다 원본에서 찾을 자리(_hl)와 BL No.(파일 이름)를 붙인다."""
     import pymupdf
     rec = {"case": name, "ex": res["ex"], "verify": res["verify"]}
     t = gerp_xlsx.tables_for([rec])
@@ -567,6 +597,7 @@ def payload(name, pdfs, res) -> dict:
             if marks:
                 break
         row["_hl"] = marks[:4]
+    fill_bl_no(t["items"], pdfs, files, res.get("pages"), case)
     for d in docs:
         if d:
             d.close()

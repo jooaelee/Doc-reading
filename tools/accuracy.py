@@ -32,7 +32,8 @@ import wuxi_rules as R  # noqa: E402
 from gerp_xlsx import ITEM_SPEC  # noqa: E402
 
 ALL_COLS = [(tier, label, col, how) for tier, label, col, how, _w, _n in ITEM_SPEC]
-MAIN = [c for c in ALL_COLS if c[0] == "Main"]
+# BL No. 는 판독이 아니라 파일 이름에서 넣으므로(how "file") 정확도에서 뺀다
+MAIN = [c for c in ALL_COLS if c[0] == "Main" and c[3] != "file"]
 # 🔴 대조 모드는 Main 칸과 통화만 보여 준다. 다른 Sub 칸은 사람이 보지 않아 정답에 AI 값이 그대로 들어 있으므로
 #    정확도가 아니다(늘 100%). --sub 로 보면 「전 판독과 같은지」만 뜻이 있다
 CHECKED = MAIN + [c for c in ALL_COLS if c[2] == "Currency"]

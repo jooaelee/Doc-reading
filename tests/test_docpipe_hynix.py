@@ -466,7 +466,7 @@ class 고객_요구_열_항목(unittest.TestCase):
     def test_Main_항목은_고객_추출_대상_순서다(self):
         """품명/모델은 정확도를 따로 재려고 두 칸으로 나눴다."""
         self.assertEqual([s[1] for s in G.MAIN_ITEMS],
-                         ["PO No.", "Material Code", "품명", "부품 번호", "납품 수량", "단위", "단가"])
+                         ["BL No.", "PO No.", "Material Code", "품명", "부품 번호", "납품 수량", "단위", "단가"])
 
     def test_항목마다_BL_Item_열이_있다(self):
         for tier, label, col, how, _, note in G.ITEM_SPEC:

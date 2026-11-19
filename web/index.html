@@ -40,6 +40,7 @@
 table.items{font-size:12.5px}
 table.items th,table.items td{padding:5px 8px;white-space:nowrap}
 table.items td[contenteditable]{cursor:text;min-width:48px}
+table.items td.ro{color:var(--muted);white-space:nowrap}
 table.items td[contenteditable]:focus{outline:2px solid var(--accent);outline-offset:-2px;background:#fff}
 table.items td.gerp{background:#f6f7f9;color:var(--muted)}
 table.items td.edited{background:var(--edit)}
@@ -257,6 +258,7 @@ const esc = s => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&amp
 let LIMITS = {files: 30, mb: 40, keepDays: 14};
 let PICK = [], JOBS = [], CUR = null, P = null, ORIG = null, DELETED = [], SEL = -1, POLL = null, LIST_POLL = null, PDF_FOR = null, SHOW_PDF = true, SAVED = '';
 const HIDE_COLS = ['케이스'];
+const RO_COLS = ['BL No.'];   // 파일 이름에서 넣는 칸. 판독 값이 아니라 고치지 않는다
 // 대조 모드에서 보는 칸: Main 항목(gerp_xlsx.MAIN_ITEMS)과 통화, 그리고 어느 인보이스의 어느 서류 줄인지
 // 출처(CI, PL)는 열로 두지 않고 줄 번호 옆에 PL 표시로 붙인다. 노트북 폭에서도 통화까지 한 화면에 들어오게
 const CMP_COLS = ['Invoice No.', 'Purchase Order', 'Material', '품명', 'Vendor Part No.', 'B/L quantity', '단위', 'Net Price', 'Currency'];
@@ -548,6 +550,7 @@ function drawTable() {
         const ck = CMP && !ed ? ckClass(r, c) : null;
         const cls = [only.includes(c) ? 'gerp' : '', ed ? 'edited' : '', rl[c] ? 'ruled' : '', ck ? ck[0] : ''].filter(Boolean).join(' ');
         const tip = ck ? ck[1] : (rl[c] ? '운영 규칙으로 채운 값' : '');
+        if (RO_COLS.includes(c)) return `<td class="ro" data-c="${esc(c)}" title="올린 PDF 파일 이름에서 넣은 값">${esc(v)}</td>`;
         return `<td class="${cls}" data-c="${esc(c)}" contenteditable="true"${ck && ck[2] ? ` data-hint="${esc(ck[2])}"` : ''}${tip ? ` title="${esc(tip)}"` : ''}>${esc(v)}</td>`;
       }).join('') + '</tr>';
   });

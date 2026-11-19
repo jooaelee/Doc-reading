@@ -114,7 +114,8 @@ def make_job(case: str, pdfs: list[str], created: float) -> dict:
     except Exception:
         shutil.rmtree(d, ignore_errors=True)
         raise
-    job = {"id": jid, "status": "queued", "created": created, "names": names, "pdfs": [str(d / n) for n in names],
+    job = {"id": jid, "status": "queued", "created": created, "names": names,
+           "orig_names": [os.path.basename(p) for p in pdfs], "pdfs": [str(d / n) for n in names],
            "steps": [], "payload": None, "error": None, "title": case, "case": case, "source": SOURCE}
     wuxi_web.STORE.save(job)
     wuxi_web.log_access(None, "bulk", jid, note=f"{case} {len(names)} files")

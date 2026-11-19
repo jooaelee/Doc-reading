@@ -65,7 +65,10 @@ CODE_COLS = [("Sap Code", "sap_code"), ("Po Item No.", "po_item_no"),
              ("Part No.", "part_no")]
 # 🔴 Currency 를 Net Price 바로 뒤에 둔다(11/10 임지원 PM). 화면에서는 케이스 열이 숨으므로
 #    「Net Price, Currency, Invoice No.」 로 붙어 보인다. 통화는 인보이스 단위 값이라 줄마다 그 인보이스의 통화를 잇는다
-EXTRA_ITEM_COLS = (["Currency", "케이스", "Invoice No.", "출처", "줄", "품명", "단위"]
+# 🔴 BL No. 는 서류에서 읽지 않고 올린 PDF 파일 이름에서 넣는다(11/19). 우시는 파일 이름이 HBL 번호라 서류에서
+#    찾는 것보다 정확하다. 값은 wuxi_engine.payload 가 채우고(bl_no_of_file), 화면에서는 고치지 않는다.
+#    「Net Price, Currency, Invoice No.」 가 붙어 보이는 차례(위)를 지키려고 Invoice No. 뒤에 둔다
+EXTRA_ITEM_COLS = (["Currency", "케이스", "Invoice No.", "BL No.", "출처", "줄", "품명", "단위"]
                    + [c for c, _ in CODE_COLS]
                    + ["Case No.", "순중량(kg)", "총중량(kg)", "HS", "원산지", "NCV 단서"])
 ITEM_COLS = GERP_ITEM_COLS + EXTRA_ITEM_COLS
@@ -83,6 +86,8 @@ ITEM_COLS = GERP_ITEM_COLS + EXTRA_ITEM_COLS
 #   (등급, 이름, BL Item 행의 열, 견주는 법, 비면 노랗게, 설명)
 #   견주는 법: code 는 띄어쓰기와 대소문자 무시, number 는 숫자로, unit 은 값 바꾸기 규칙을 건 뒤, text 는 기호 무시
 ITEM_SPEC = [
+    ("Main", "BL No.", "BL No.", "file", False,
+     "HBL 번호. 서류에서 읽지 않고 올린 PDF 파일 이름(확장자를 빼고 첫 낱말)을 넣음. 파일이 여럿이면 그 줄을 읽은 파일"),
     ("Main", "PO No.", "Purchase Order", "code", True, "인보이스 줄의 PO 번호. 무상 품목은 없을 수 있음"),
     ("Main", "Material Code", "Material", "code", False,
      "하이닉스 SAP 자재 번호(예 R1257986). 공급사가 Sap Code 열이나 Material 열에 찍고, 통관표의 "
@@ -124,6 +129,14 @@ REQ_HEAD = {
 }
 
 
+def bl_no_of_file(name: str) -> str:
+    """PDF 파일 이름에서 BL No. 를 낸다. 확장자를 빼고 첫 낱말이다(「HDLCA125978.pdf」 는 HDLCA125978,
+    「SFSA2610153  正式件.pdf」 는 SFSA2610153. tools/bulk_jobs.case_of_file 과 같은 자르기)."""
+    import os
+    stem = os.path.splitext(os.path.basename(str(name or "")))[0].strip()
+    return stem.split()[0] if stem.split() else ""
+
+
 def field_available(doc_text):
     """이 서류에 요구 항목별 열이 인쇄돼 있나. 글자가 없으면 판단하지 않는다(None)."""
     import re
@@ -144,7 +157,7 @@ CORE3_COLS = ["케이스", "인보이스 줄", "Purchasing document", "Material"
 MAIN_COLS = ["케이스", "Invoice No.", "줄"] + [s[1] for s in MAIN_ITEMS] + ["보충 출처", "미추출 사유"]
 SUB_COLS = ["케이스", "Invoice No.", "줄"] + [s[1] for s in SUB_ITEMS] + ["INCOTERMS"]
 SPEC_COLS = ["등급", "항목", "BL Item 열", "견주는 법", "비면 확인", "설명"]
-COMPARE_NAME = {"code": "띄어쓰기, 대소문자 무시", "number": "숫자로", "unit": "표기 통일 뒤", "text": "기호, 띄어쓰기 무시"}
+COMPARE_NAME = {"file": "파일 이름에서 넣음(판독 정확도에서 뺌)", "code": "띄어쓰기, 대소문자 무시", "number": "숫자로", "unit": "표기 통일 뒤", "text": "기호, 띄어쓰기 무시"}
 
 GERP_HEAD_COLS = ["케이스", "Incoterms", "Master B/L No.", "House B/L No.", "Forwarder",
                   "ETD", "ETA", "Shipping Port", "Arrival Port", "Invoice No.",
@@ -163,6 +176,7 @@ ORIGIN = [
     ("BL Item", "B/L quantity", "서류", "인보이스 행의 수량"),
     ("BL Item", "Invoice amount", "서류", "인보이스 행의 금액"),
     ("BL Item", "Net Price", "서류", "인보이스 행의 단가"),
+    ("BL Item", "BL No.", "파일 이름", "올린 PDF 파일 이름(확장자를 빼고 첫 낱말). 우시는 파일 이름이 HBL 번호"),
     ("BL Item", "Currency", "서류", "그 행이 속한 인보이스의 통화. 인보이스 총액 옆 통화를 행마다 잇음"),
     ("BL Header", "Incoterms", "서류", "인보이스의 인코텀즈"),
     ("BL Header", "Master B/L No.", "서류", "운송장의 마스터 번호"),

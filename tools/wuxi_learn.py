@@ -173,6 +173,10 @@ def find_header(pdfs, value: str) -> str | None:
 
 
 # ───────────────────────────────────────── 신호 받기
+# 앱이 채우는 열(BL No. 는 파일 이름). 판독 값이 아니므로 바뀌어도 학습 신호로 보지 않는다
+NOT_LEARNED = {"BL No."}
+
+
 def diff(job: dict, final_items: list, deleted: list | None = None) -> dict:
     """AI 값(payload.items)과 최종 값의 차이. 최종 줄의 _i 가 원래 줄 번호이고, _i 가 없는 줄은 사람이 더한 줄이다."""
     orig = (job.get("payload") or {}).get("items") or []
@@ -184,13 +188,13 @@ def diff(job: dict, final_items: list, deleted: list | None = None) -> dict:
             continue
         i = row.get("_i")
         if not isinstance(i, int) or not (0 <= i < len(orig)):
-            if any(_s(row.get(c)) for c in cols):
+            if any(_s(row.get(c)) for c in cols if c not in NOT_LEARNED):
                 added.append(k)
             continue
         seen.add(i)
         o = orig[i]
         for c in cols:
-            if c.startswith("_") or c not in row:
+            if c.startswith("_") or c not in row or c in NOT_LEARNED:
                 continue
             b, a = _s(o.get(c)), _s(row.get(c))
             if b != a:
