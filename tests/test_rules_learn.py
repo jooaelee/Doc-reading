@@ -440,6 +440,21 @@ def test_줄_밖에_적힌_PO_모델_수량으로도_나눈다():
         ("4303517252", 32, 31840.0), ("4303544657", 190, 189050.0), ("4303517252", 1, 1177.0), ("4303544657", 5, 5885.0)]
 
 
+def test_모델_없이_PO_수량만_적힌_머리로도_나눈다():
+    """ENF 「Your PO No.」 칸 「4353550049（1） 4303517327（159）」(9월 COKR26014289, 사람이 고친 정답과 같음).
+    수량이 합(160)과 같은 줄만 나누고, PO 가 하나뿐이거나 합이 안 맞으면 그대로 둔다."""
+    text = "9) Your PO No.\nCOMMERCIAL INVOICE\n4353550049（1）\n4303517327（159）\nPACKING LIST\n4353550049（1）\n4303517327（159）\n"
+    ex = {"ci_lines": [{"description": "SP-5000 (PE DRUM 200L)", "qty": 160, "unit_price": 53800.0, "po_no": "4353550049"},
+                       {"description": "EMPTY DURM(200L)", "qty": 160, "unit_price": 3000.0, "po_no": "4353550049"},
+                       {"description": "OTHER", "qty": 7, "unit_price": 1.0, "po_no": "4353550049"}]}
+    assert E.split_by_po(ex, text) == 2
+    assert [(x["po_no"], x["qty"], x["amount"]) for x in ex["ci_lines"][:4]] == [
+        ("4353550049", 1, 53800.0), ("4303517327", 159, 8554200.0), ("4353550049", 1, 3000.0), ("4303517327", 159, 477000.0)]
+    assert ex["ci_lines"][4]["qty"] == 7 and "_split_from" not in ex["ci_lines"][4]
+    one = {"ci_lines": [{"description": "SP-5000", "qty": 160, "unit_price": 1.0, "po_no": "4353550049"}]}
+    assert E.split_by_po(one, "4353550049（160）\nINVOICE 2026 (3)\n") == 0
+
+
 def tok_ex():
     """10월 HDLCA126804. 사람이 확정한 정답: TOKN-4030 96(60806727), 144(60907801), TOTS-0180 96(60843428)."""
     return {"ci_lines": [{"description": "TOKN-4030 2.2CP", "qty": 240, "unit_price": 72400.0, "po_no": "4303544602"},

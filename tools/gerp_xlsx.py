@@ -518,18 +518,33 @@ def fold_pl_rows(rows):
         return ia == ib if ia and ib else (loose or len(invs) <= 1)
 
     def item_of(p, r):
-        """PL 줄 p 와 인보이스 줄 r 이 같은 품목인가. 코드가 겹치거나, PL 품명에 인보이스 코드가 들어 있거나(PLISZ2H00667),
-        둘 다 코드가 없을 때 품명이 같으면 같다."""
+        """PL 줄 p 와 인보이스 줄 r 이 같은 품목인가. 2: 코드로 맞음, 1: 품명으로만 맞음, 0: 다름.
+        코드가 겹치거나, 한쪽 품명에 다른 쪽 코드가 들어 있으면(PLISZ2H00667) 코드로 맞는다. PL 줄에 코드가 없으면 품명으로 본다.
+        같은 품명의 인보이스 줄이 여럿이면 코드로 맞는 줄만 쓴다(아래 same_item).
+
+        🔴 예전에는 인보이스 줄에도 코드가 없어야 품명으로 견줬다. 그런데 포장명세서는 코드를 안 찍고 인보이스만 찍는
+           서류가 흔해, 품명이 꼭 같은 PL 줄이 따로 품목 줄로 남았다(우시 9월 HDLCA124559 VERSUM 3줄, FLU10638 DUPONT
+           CMP 5줄, 11/17). PL 줄에 코드가 있는데 안 겹치면 여전히 다른 품목으로 본다."""
         pc, rc = codes(p), codes(r)
         if pc & rc:
-            return True
+            return 2
         # 포장명세서가 코드 뒤에 내부 번호를 붙여 찍는다(PLISZ2H00821: 인보이스 EAX01927933, PL EAX01927933/1015585)
         if any(len(a) >= 6 and len(b) >= 6 and (a in b or b in a) for a in pc for b in rc):
-            return True
-        pd = _alnum(p.get("품명"))
+            return 2
+        pd, rd = _alnum(p.get("품명")), _alnum(r.get("품명"))
         if any(len(c) >= 6 and c in pd for c in rc):
-            return True
-        return not pc and not rc and bool(_norm_desc(p.get("품명"))) and _norm_desc(p.get("품명")) == _norm_desc(r.get("품명"))
+            return 2
+        # 거꾸로 인보이스 품명에 PL 코드가 들어 있다(SFSA2610028: 인보이스 「00012097013 X IKONIC…」, PL 코드 12097013)
+        if any(len(c) >= 6 and c in rd for c in pc):
+            return 2
+        if pc:
+            return 0
+        a, b = _norm_desc(_LOT_TAIL.sub("", _s(p.get("품명")))), _norm_desc(r.get("품명"))
+        if not a:
+            return 0
+        # PL 품명이 인보이스 품명의 일부이고 뒤에 LOT 번호만 붙는다(NEC49849015 TOPCO: 인보이스 「PHOTO RESIST NP _SOC…」,
+        # PL 「NP _SOC… Lot No.260612D1」). 짧은 낱말이 우연히 들어 있는 것을 막으려고 12자 넘을 때만 본다
+        return 1 if a == b or (min(len(a), len(b)) >= 12 and (a in b or b in a)) else 0
 
     def joined(r):
         return any(_s(r.get(c)) for c in PL_COLS) or r.get("_pl_qty") is not None
@@ -559,7 +574,9 @@ def fold_pl_rows(rows):
     for k in pls:
         if k in drop:
             continue
-        m = [i for i, r in enumerate(ci) if same_inv(r, rows[k], loose=True) and item_of(rows[k], r)]
+        hit = {i: item_of(rows[k], r) for i, r in enumerate(ci) if same_inv(r, rows[k], loose=True)}
+        best = max(hit.values(), default=0)
+        m = [i for i, v in hit.items() if v and v == best]
         if m:
             groups.setdefault(tuple(m), []).append(k)
     for m, ks in groups.items():
@@ -596,6 +613,9 @@ def fold_pl_rows(rows):
 
 PACK_UNITS = {"CTN", "CTNS", "CARTON", "CARTONS", "BOX", "BOXES", "PLT", "PLTS", "PALLET", "PALLETS", "PKG", "PKGS",
               "PACKAGE", "PACKAGES", "CASE", "CASES", "CS", "SKID", "SKIDS", "CRATE", "CRATES"}
+
+
+_LOT_TAIL = re.compile(r"\s*\bLOT\s*(?:NO\.?|#)?\s*[:.]?\s*\S+.*$", re.I)     # 품명 뒤에 붙은 「Lot No.xxx」
 
 
 def _alnum(v):

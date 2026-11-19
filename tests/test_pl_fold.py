@@ -138,3 +138,41 @@ def test_하이닉스_판독은_인보이스별_총액으로_쌍_줄을_뺀다()
         D.set_prompt("v3")
     assert [(l["material_code"], l["amount"]) for l in out["ci_lines"]] == [("A1", 10), ("B1", 20), ("Z9", 5)]
     assert out["ci_lines_dropped"] == 2
+
+
+def test_인보이스에만_코드가_있어도_품명이_같으면_같은_품목이다():
+    # HDLCA124559 VERSUM: 인보이스는 Material 과 SET, PL 은 코드 없이 같은 품명과 ea. 상자 둘로 나뉜 줄도 있다
+    rows = [ci(1, unit="SET", desc="Sub_C2F_Cooling Cabinet_5%B2H6/N2", Material="EBE01026"),
+            ci(1, unit="SET", desc="Sub_C2F_C-Bundle_HCl", Material="EBE07608"),
+            pl(1, unit="ea", desc="Sub_C2F_Cooling Cabinet_5%B2H6/N2"), pl(1, unit="ea", desc="Sub_C2F_C-Bundle_HCl"),
+            pl(1, unit="ea", desc="Sub_C2F_C-Bundle_HCl")]
+    G.fold_pl_rows(rows)
+    assert kinds(rows) == ["CI", "CI"]
+    # FLU10638 DUPONT CMP: 인보이스는 KG 와 ™ 표시, PL 은 드럼 수(DR)
+    d = "Acuplane™ LK393C4-CON Slurry DRUM"
+    rows = [ci(1428, unit="KG", desc=d, **{"Vendor Part No.": "11144174"}), ci(476, unit="KG", desc=d, Material="R3046328"),
+            pl(6, unit="DR", desc=d.replace("™", "")), pl(2, unit="DR", desc=d.replace("™", ""))]
+    G.fold_pl_rows(rows)
+    assert kinds(rows) == ["CI", "CI"]
+    # PL 줄에 코드가 있는데 안 겹치면 품명이 같아도 다른 품목이다
+    rows = [ci(5, desc="VALVE", Material="AAA111"), pl(5, desc="VALVE", Material="ZZZ999")]
+    G.fold_pl_rows(rows)
+    assert kinds(rows) == ["CI", "PL"]
+
+
+def test_품명에_든_코드나_LOT_번호만_붙은_품명도_같은_품목이다():
+    # SFSA2610028: 인보이스 품명에 PL 코드 12097013 이 들어 있고, PL 은 상자 넷으로 나뉜다(4+41+1+14=60)
+    d = 'IKONIC(TM) 4140H WINDOW PAD FD1 30" ACAQ;5C05'
+    rows = [ci(60, unit="EA", desc="00012097013 X " + d, Material="P3252596")] + \
+        [pl(q, unit="EA", desc=d, **{"Part No.": "12097013"}) for q in (4, 41, 1, 14)]
+    G.fold_pl_rows(rows)
+    assert kinds(rows) == ["CI"]
+    # NEC49849015 TOPCO: PL 품명이 인보이스 품명의 뒷부분이고 Lot 번호가 붙는다(32+8+4+4=48)
+    rows = [ci(48, unit="GAL", desc="PHOTO RESIST NP _SOC_SEFS-1842_2.60CP_3.785L_", Material="R3082115")] + \
+        [pl(q, unit="GALS", desc="NP _SOC_SEFS-1842_2.60CP_3.785L_ Lot No.260612D1") for q in (32, 8, 4, 4)]
+    G.fold_pl_rows(rows)
+    assert kinds(rows) == ["CI"]
+    # 짧은 낱말이 우연히 들어 있는 것은 같은 품목이 아니다
+    rows = [ci(5, desc="O-RING VALVE BODY ASSY", Material="AAA111"), pl(5, desc="VALVE")]
+    G.fold_pl_rows(rows)
+    assert kinds(rows) == ["CI", "PL"]
