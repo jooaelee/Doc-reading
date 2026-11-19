@@ -16,6 +16,8 @@ import time
 from pathlib import Path
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import accuracy  # noqa: E402
+import rule_sim  # noqa: E402
 import wuxi_learn  # noqa: E402
 import wuxi_paths  # noqa: E402
 import wuxi_rules as R  # noqa: E402
@@ -171,19 +173,49 @@ def job_detail(job: dict, web) -> dict:
 
 
 # ───────────────────────────────────────── 학습
+def _sim(fn, *a) -> dict | None:
+    """정답 시뮬레이션. 실패해도 학습 화면은 열려야 하므로 None 을 돌려준다."""
+    try:
+        res = fn(*a)
+        res["text"] = rule_sim.text(res)
+        res.pop("byCase", None)
+        return res
+    except Exception as e:                       # noqa: BLE001
+        return {"computable": False, "text": f"시뮬레이션을 하지 못했습니다: {e}"}
+
+
 def learn(store) -> dict:
     store.load_all()
     jobs = [j for j in store.jobs.values() if j.get("status") == "done"]
+    try:
+        sets = accuracy.load_sets(jobs=list(store.jobs.values()))
+    except Exception:                            # noqa: BLE001
+        sets = []
     cands = []
     for r in R.all_rules():
         if r["status"] != "candidate":
             continue
         ev = r.get("evidence") or []
         jobs_n = len({e.get("job") for e in ev})
-        cands.append({**r, "text": R.describe(r), "kindName": R.KINDS[r["kind"]], "scopeName": R.supplier_name(r["scope"]),
-                      "evidenceJobs": jobs_n, "evidenceCount": len(ev), "evidence": ev[-5:][::-1],
-                      "preview": wuxi_learn.preview(r, jobs)})
+        c = {**r, "text": R.describe(r), "kindName": R.KINDS[r["kind"]], "scopeName": R.supplier_name(r["scope"]),
+             "evidenceJobs": jobs_n, "evidenceCount": len(ev), "evidence": ev[-5:][::-1],
+             "preview": wuxi_learn.preview(r, jobs)}
+        if sets:
+            c["sim"] = _sim(rule_sim.simulate, r, sets)
+            if r["scope"] != R.COMMON and r["kind"] in ("code", "alias", "check"):
+                c["simCommon"] = _sim(rule_sim.simulate, r, sets, R.COMMON)
+        cands.append(c)
     cands.sort(key=lambda c: (-c["evidenceJobs"], -(c.get("updated_evidence") or c.get("updated") or 0)))
+    promos = wuxi_learn.promotions()
+    for p in promos:
+        r = R.get(p["rule"])
+        if sets and r:
+            p["sim"] = _sim(rule_sim.simulate, r, sets, R.COMMON, r["scope"])   # 이미 쓰이는 공급사는 빼고 다른 공급사에 얼마나
+    sim_all = None
+    if sets:
+        sim_all = _sim(rule_sim.simulate_all, [c for c in cands], sets)
+        if sim_all:
+            sim_all["gold"] = len(sets)
     fb = wuxi_learn.feedback(30)
     recent = [h for h in R.history(60) if h.get("event") in ("create", "activate", "promote", "off", "reject")][:8]
     for h in recent:
@@ -191,7 +223,8 @@ def learn(store) -> dict:
         h["scopeName"] = R.supplier_name(h.get("scope")) if h.get("scope") else ""
     return {
         "candidates": cands,
-        "promotions": wuxi_learn.promotions(),
+        "promotions": promos,
+        "simAll": sim_all, "goldCases": len(sets),
         "feedback": {"cells": sum(1 for f in fb if f.get("type") == "cell"),
                      "added": sum(f.get("n", 0) for f in fb if f.get("type") == "added"),
                      "reviewsOk": sum(1 for f in fb if f.get("type") == "review" and f.get("result") == "ok"),

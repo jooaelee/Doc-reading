@@ -173,6 +173,81 @@ class 조각(unittest.TestCase):
         self.assertEqual((out["pl_packages"], out["pl_gross"]), (27, 334.64))
         self.assertEqual([l["qty"] for l in out["pl_lines"]], [1, 2])
 
+    def test_같은_인보이스_사본이_여럿이면_줄을_한_번만_잇는다(self):
+        # 스캔 묶음에 같은 인보이스가 세 부(HB, OH, LCA 사본). 사본마다 3줄을 읽어 왔다. 9줄이 되면
+        # 금액 합이 총액의 3배가 되어 「빠진 줄 의심」이 뜬다(실제 서류 점검 11/6). 품명은 OCR 마다
+        # 다르게 읽혀도 같은 사본이다.
+        lines = [{"po_no": "4353379233", "qty": 30, "unit_price": 15.4, "amount": 462, "description": "SENSOR"},
+                 {"po_no": "4353379236", "qty": 130, "unit_price": 5, "amount": 650, "description": "CABLE"}]
+        # 두 번째 사본은 품명이 길고 부품 번호가 더 있으며 한 줄은 원산지가 빠졌다(스캔 OCR 차이). 그래도 같은 사본이다.
+        copy2 = [dict(l, description=l["description"] + " ASSY LONG NAME", part_no="1295A0390") for l in lines]
+        copy2[0]["country_of_origin"] = "US"
+        # 세 번째 사본은 차례와 상자 번호가 더 읽혔다. 둘 다 가진 숫자와 번호가 같으면 같은 사본이다.
+        lines = [dict(l, seq=i + 1, case_no="Packing#%d" % (i + 1)) for i, l in enumerate(lines)]
+        out = dp.merge_parts([("CI", {"invoice_no": "SO26012102", "ci_total": 1112, "ci_lines": lines}, 0, dp.SPLIT_KEYS["CI"]),
+                              ("CI", {"invoice_no": "SO26012102", "ci_total": 1112, "ci_lines": copy2}, 1, dp.SPLIT_KEYS["CI"]),
+                              ("CI", {"invoice_no": "SO26012102", "ci_total": 1112, "ci_lines": lines}, 2, dp.SPLIT_KEYS["CI"])])
+        self.assertEqual([l["po_no"] for l in out["ci_lines"]], ["4353379233", "4353379236"])
+        self.assertEqual(out["ci_total"], 1112)
+
+    def test_번호가_없는_같은_서류_두_부도_줄을_한_번만_잇는다(self):
+        # 통관 용도설명서는 인보이스 번호가 없어 같은 서류로 못 묶인다. 두 부가 들어오면 통관표 줄이 두 배가 되어
+        # 인보이스 7줄에 통관표 14줄로 「빠진 줄 의심」이 떴다(COKR26014064, 11/6).
+        cn = [{"sap_code": "P3103668", "country_of_origin": "KR", "qty": 7}, {"sap_code": "P3103669", "country_of_origin": "KR", "qty": 1}]
+        before = dp.PROMPT_VERSION
+        dp.set_prompt("h1")      # 통관표 줄은 하이닉스 판 스키마에만 있다
+        try:
+            out = dp.merge_parts([("CUSTOMS", {"cn_lines": list(cn)}, 0, ["cn_lines"]), ("CUSTOMS", {"cn_lines": list(cn)}, 1, ["cn_lines"])])
+            self.assertEqual(len(out["cn_lines"]), 2)
+            # 한 줄짜리 통관표 세 부. 단위가 붙은 중량("0.24KG")도 숫자로 견준다(FLUSA4414, 11/6)
+            one = [{"seq": 1, "sap_code": "F3180457", "model": "1295A0390", "country_of_origin": "USA", "net_weight": "0.24KG"}]
+            out = dp.merge_parts([("CUSTOMS", {"cn_lines": list(one)}, i, ["cn_lines"]) for i in range(3)])
+            self.assertEqual(len(out["cn_lines"]), 1)
+            # 포장명세서 사본의 PO 번호를 OCR 이 다른 붙임표(‐)로 읽어도 같은 번호다
+            pl_a = [{"sap_code": "F3180457", "po_no": "PO‐4353375584", "qty": 5, "net": 1.2, "gross": 2.7}]
+            pl_b = [{"sap_code": "F3180457", "po_no": "PO-4353375584", "qty": 5, "net": 1.2, "gross": 2.7, "invoice_no": "CI265071040"}]
+            out = dp.merge_parts([("PL", {"pl_lines": pl_a}, 0, dp.SPLIT_KEYS["PL"]), ("PL", {"pl_lines": pl_b}, 1, dp.SPLIT_KEYS["PL"])])
+            self.assertEqual(len(out["pl_lines"]), 1)
+            # 줄이 다른 두 서류는 여전히 이어진다
+            out = dp.merge_parts([("CUSTOMS", {"cn_lines": cn[:1]}, 0, ["cn_lines"]), ("CUSTOMS", {"cn_lines": cn[1:]}, 1, ["cn_lines"])])
+            self.assertEqual(len(out["cn_lines"]), 2)
+        finally:
+            dp.set_prompt(before)
+
+    def test_사본마다_두_코드_칸이_바뀌어도_줄을_한_번만_잇는다(self):
+        # 스캔 사본마다 AI 가 Part No 와 Material Code 를 서로 바꿔 넣어, 4줄 인보이스가 12줄로 읽혔다
+        # (PNS26025031, 11/10). 숫자로만 된 코드("1024103")도 같은 묶음으로 견준다(PNS26071952).
+        a = [{"po_no": "4303172339", "part_no": "D5CP91637", "material_code": "P3024498", "qty": 2, "unit_price": 121.81, "amount": 243.62},
+             {"po_no": "4353405763", "part_no": "P3186599", "material_code": "1024103", "qty": 6, "unit_price": 10, "amount": 60}]
+        b = [{"po_no": "4303172339", "part_no": "P3024498", "material_code": "D5CP91637", "qty": 2, "unit_price": 121.81, "amount": 243.62, "seq": 1},
+             {"po_no": "4353405763", "part_no": "1024103", "material_code": "P3186599", "qty": 6, "unit_price": 10, "amount": 60, "seq": 2}]
+        out = dp._merge_chunks([{"ci_lines": a}, {"ci_lines": b}, {"ci_lines": [dict(x) for x in a]}])
+        self.assertEqual(len(out["ci_lines"]), 2)
+        # SAP 코드가 한 사본에서는 Material Code 칸에, 다른 사본에서는 제 칸에 들어간 경우(PNS26071952 재판독)
+        p = [{"po_no": "4353463630", "part_no": "5105-300130-B1", "material_code": "AA0500162", "qty": 2, "net": 2, "gross": 11}]
+        q = [{"po_no": "4353463630", "sap_code": "AA0500162", "part_no": "5105-300130-B1 WIQ2101-0030A", "material_code": "P2170447", "qty": 2, "net": 2, "gross": 11}]
+        out = dp._merge_chunks([{"pl_lines": p}, {"pl_lines": q}])
+        self.assertEqual(len(out["pl_lines"]), 1)
+        # 숫자가 모두 같아도 코드가 하나도 겹치지 않으면 다른 줄이라 그대로 잇는다
+        c = [dict(x, part_no="X1", material_code="Y1") for x in a]
+        out = dp._merge_chunks([{"ci_lines": a}, {"ci_lines": c}])
+        self.assertEqual(len(out["ci_lines"]), 4)
+
+    def test_사본_한_줄의_코드_오타는_봐주고_여러_줄이면_다른_서류다(self):
+        # 15줄 포장명세서 사본 두 부 중 한 줄만 코드를 5105-200527 과 5105-300527 로 달리 읽었다(PNS26071952, 11/10)
+        a = [{"po_no": f"43034{i:05d}", "part_no": f"5105-20{i:04d}-B1", "qty": i + 1, "net": 0.1 * (i + 1), "gross": 1.0 + i} for i in range(5)]
+        b = [dict(x, material_code=f"P30{i:05d}") for i, x in enumerate(a)]
+        b[2]["part_no"] = "5105-300002-B1"
+        out = dp._merge_chunks([{"pl_lines": a}, {"pl_lines": b}])
+        self.assertEqual(len(out["pl_lines"]), 5)
+        # 두 줄의 코드가 다르면 사본으로 보지 않고 잇는다(빠짐 검사가 줄 수를 보고 판단하게 둔다)
+        b[3]["part_no"] = "OTHER-1"
+        out = dp._merge_chunks([{"pl_lines": a}, {"pl_lines": b}])
+        self.assertEqual(len(out["pl_lines"]), 10)
+        # 두 줄짜리 목록은 봐줄 근거가 모자라 코드 한 줄만 달라도 잇는다
+        out = dp._merge_chunks([{"pl_lines": a[:2]}, {"pl_lines": [a[0], dict(a[1], part_no="Z9")]}])
+        self.assertEqual(len(out["pl_lines"]), 4)
+
     def test_다른_서류면_여전히_더한다(self):
         out = dp.merge_parts([("PL", {"pl_packages": 21}, 0, dp.SPLIT_KEYS["PL"]), ("PL", {"pl_packages": 2}, 1, dp.SPLIT_KEYS["PL"])])
         self.assertEqual(out["pl_packages"], 23)

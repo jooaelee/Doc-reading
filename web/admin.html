@@ -58,6 +58,11 @@
 .cd .ev li{margin:3px 0}
 .cd .pv{background:#fafbfc;border:1px solid var(--line);border-radius:var(--r-s);padding:10px 12px;font-size:12.5px}
 .cd .pv .big{font-size:14px;font-weight:700;margin-bottom:2px}
+.sim{background:#fafbfc;border:1px solid var(--line);border-radius:var(--r-s);padding:10px 12px;font-size:12.5px;line-height:1.6}
+.sim+.sim{margin-top:8px}
+.sim .big{font-size:14px;font-weight:700;margin-bottom:2px;display:flex;gap:6px;align-items:center;flex-wrap:wrap}
+.sim ul{margin:6px 0 0;padding-left:16px}
+.sim .arrow{margin:0 4px;color:var(--muted)}
 .cd .acts{display:flex;gap:8px;justify-content:flex-end;margin-top:12px;flex-wrap:wrap}
 .arrow{color:var(--muted);margin:0 4px}
 .tl{display:grid;gap:0}
@@ -431,7 +436,7 @@ function checkPanel(mine) {
     document.querySelectorAll('[data-ck], [data-tol]').forEach(el => el.onchange = async () => {
       const k = el.dataset.ck || el.dataset.tol, row = el.closest('tr'), en = row.querySelector('[data-ck]').checked;
       const tolEl = row.querySelector('[data-tol]'), data = {check: k, enabled: en}; if (tolEl) data.tolerance = tolEl.value;
-      const reason = await reasonModal(SCOPE === '*' ? '공통 빠짐 검사를 바꿉니다' : '이 공급사의 빠짐 검사를 바꿉니다', `「${checks[k].name}」 ${en ? '켬' : '끔'}${tolEl ? `, 허용 차이 ${tolEl.value}` : ''}. 다음 판독부터 쓰입니다.`, '바꾸기');
+      const reason = await reasonModal(SCOPE === '*' ? '공통 빠짐 검사를 바꿉니다' : '이 공급사의 빠짐 검사를 바꿉니다', `「${checks[k].name}」 ${en ? '켬' : '끔'}${tolEl ? `, 허용 차이 ${tolEl.value}` : ''}. 1분 안에 확정하지 않은 작업의 판정도 다시 매깁니다.${tolEl ? ' 허용 차이는 다음 판독부터 쓰입니다.' : ''}`, '바꾸기');
       if (reason == null) { drawRules(); return; }
       const ex = SCOPE === '*' ? common.find(r => r.data.check === k) : mine.find(r => r.kind === 'check' && r.data.check === k);
       try { if (ex) { await post(`api/admin/rules/${ex.id}/edit`, {data, reason}); if (ex.status !== 'active') await post(`api/admin/rules/${ex.id}/activate`, {reason}); }
@@ -454,11 +459,14 @@ async function loadLearn() {
       <button class="btn sm" id="lReload" type="button">새로 고침</button></div>
       <div class="row small" style="gap:18px"><span>최근 30일</span><span>고친 칸 <b>${num(f.cells)}</b></span><span>더한 줄 <b>${num(f.added)}</b></span>
         <span>빠진 줄 없음 판정 <b>${num(f.reviewsOk)}</b></span><span>빠진 줄 있음 판정 <b>${num(f.reviewsMissing)}</b></span><span>확정 <b>${num(f.confirms)}</b></span></div></div>
+    <h3 style="font-size:15px;margin:20px 0 10px">정답으로 미리 보기</h3>
+    ${simAllCard()}
     <h3 style="font-size:15px;margin:20px 0 10px">규칙 후보 ${LV.candidates.length ? `<span class="bd cand">${LV.candidates.length}</span>` : ''}</h3>
     ${LV.candidates.length ? LV.candidates.map(candCard).join('') : '<div class="card"><div class="empty"><b>아직 후보가 없습니다</b>고객이 확인 화면에서 값을 고친 뒤 엑셀을 받거나 확정하면 여기에 후보가 생깁니다.</div></div>'}
     <h3 style="font-size:15px;margin:22px 0 10px">격상 제안</h3>
     <div class="card">${LV.promotions.length ? `<div class="tbl-wrap"><table class="t"><tbody>${LV.promotions.map(p => `<tr><td><div style="font-weight:600">${esc(p.text)}</div>
-      <div class="small muted">${esc(p.scope_name)} 규칙. ${esc(p.others.join(', '))}에서도 같은 수정이 있었습니다. 적용 ${num(p.applied)}칸</div></td>
+      <div class="small muted">${esc(p.scope_name)} 규칙. ${esc(p.others.join(', '))}에서도 같은 수정이 있었습니다. 적용 ${num(p.applied)}칸</div>
+      ${p.sim ? `<div style="margin-top:6px">${simBody(p.sim, '공통으로 격상하면(다른 공급사 정답)')}</div>` : ''}</td>
       <td class="acts" style="text-align:right"><button class="btn sm up" data-a="promote" data-id="${p.rule}" type="button">공통으로 격상</button></td></tr>`).join('')}</tbody></table></div>`
       : '<p class="small muted" style="margin:0">공급사 규칙 가운데 다른 공급사에서도 같은 수정이 나온 것이 생기면 여기에서 공통 규칙으로 올리자고 제안합니다. 「규칙」 탭에서 언제든 직접 격상할 수도 있습니다.</p>'}</div>
     <h3 style="font-size:15px;margin:22px 0 10px">최근 반영과 해제</h3>
@@ -467,16 +475,54 @@ async function loadLearn() {
   bindActs(() => { loadLearn().catch(fail); refreshCounts(); });
   refreshCounts();
 }
+// 정답 시뮬레이션(tools/rule_sim.py): 확정한 정답 세트에 규칙을 미리 적용해 Main 칸 정확도 전과 후를 본다
+const pctTxt = v => v == null ? '-' : (100 * v).toFixed(1) + '%';
+const pct2 = v => v == null ? '-' : (100 * v).toFixed(2) + '%';     // 정답 전체는 한 칸 차이도 보이게 소수 둘째 자리까지
+function simDelta(s) {
+  const d = 100 * ((s.after || 0) - (s.before || 0));
+  if (Math.abs(d) < 0.005) return '<span class="bd def">그대로</span>';
+  return `<span class="bd ${d > 0 ? 'ok' : 'bad'}">${d > 0 ? '+' : ''}${d.toFixed(2)}%p</span>`;
+}
+function simWarn(s) {
+  const n = (s.broken || 0) + (s.wrong || 0);
+  return n ? `<span class="bd bad" title="맞던 칸이 틀어지거나, 정답과 다른 값으로 채웁니다">정답과 다른 칸 ${n}</span>` : '';
+}
+function simBody(s, label) {
+  if (!s) return '';
+  if (!s.computable) return `<div class="sim"><div class="big">${esc(label)}</div>${esc(s.text || '')}${s.scopeCases ? ` <span class="muted">(이 범위 정답 ${s.scopeCases}건)</span>` : ''}</div>`;
+  if (s.kind === 'check') return `<div class="sim"><div class="big">${esc(label)} ${s.missed ? `<span class="bd bad">놓칠 건 ${s.missed}</span>` : ''}</div>${esc(s.text)}
+      ${(s.examples || []).length ? `<ul>${s.examples.slice(0, 4).map(e => `<li>${esc(e.case)}${e.missing ? `: 사람이 더한 줄 ${e.missing}` : ''}</li>`).join('')}</ul>` : ''}</div>`;
+  if (!s.touched) return `<div class="sim"><div class="big">${esc(label)} <span class="bd def">그대로</span></div>${esc(s.text)}</div>`;
+  return `<div class="sim"><div class="big">${esc(label)} ${simDelta(s)} ${simWarn(s)}</div>
+      <div>정답 ${s.cases}건 Main 칸 <b>${pct2(s.before)}</b><span class="arrow">→</span><b>${pct2(s.after)}</b></div>
+      ${(s.suppliers || []).slice(0, 4).map(p => `<div class="muted">${esc(p.name)} ${p.cases}건 ${pctTxt(p.before)}<span class="arrow">→</span>${pctTxt(p.after)}</div>`).join('')}
+      <div>바로잡는 칸 <b style="color:var(--ok)">${s.fixed}</b>, 틀어지는 칸 <b style="color:var(--bad)">${s.broken}</b>, 틀린 값으로 채우는 칸 <b style="color:var(--bad)">${s.wrong}</b></div>
+      ${(s.examples || []).length ? `<ul>${s.examples.slice(0, 3).map(e => `<li>${esc(e.case)} ${e.row}번째 줄 ${esc(e.col)}: ${esc(e.before || '빈 칸')}<span class="arrow">→</span>${esc(e.after)} ${e.ok === true ? '<span class="bd ok">정답과 같음</span>' : e.ok === false ? `<span class="bd bad">정답 ${esc(e.gold || '빈 칸')}</span>` : '<span class="bd def">정답에서 지운 줄</span>'}</li>`).join('')}</ul>` : ''}</div>`;
+}
+function simAllCard() {
+  const s = LV.simAll;
+  if (!LV.goldCases) return `<div class="card"><p class="small muted" style="margin:0">확정한 정답이 아직 없어 정확도 시뮬레이션을 할 수 없습니다. 고객 화면 대조 모드에서 확정하면 생깁니다.</p></div>`;
+  if (!s || !s.computable) return '';
+  return `<div class="card"><div class="sim" style="border:0;background:none;padding:0">
+      <div class="big">후보를 모두 반영하면 ${s.touched ? simDelta(s) : '<span class="bd def">그대로</span>'} ${simWarn(s)}</div>
+      <div>확정한 정답 ${s.cases}건 기준 Main 칸 정확도 <b>${pct2(s.before)}</b><span class="arrow">→</span><b>${pct2(s.after)}</b>
+        (코드 사전과 값 바꾸기 후보 ${s.rules}개${s.skipped ? `, 미리 잴 수 없는 열 이름과 판독 지침 후보 ${s.skipped}개는 뺌` : ''})</div>
+      ${(s.suppliers || []).slice(0, 6).map(p => `<div class="muted">${esc(p.name)} ${p.cases}건 ${pctTxt(p.before)}<span class="arrow">→</span>${pctTxt(p.after)}</div>`).join('')}
+      <div>바로잡는 칸 <b style="color:var(--ok)">${s.fixed}</b>, 틀어지는 칸 <b style="color:var(--bad)">${s.broken}</b>, 틀린 값으로 채우는 칸 <b style="color:var(--bad)">${s.wrong}</b>.
+        정답과 다른 칸을 만드는 후보는 카드에 빨간 표시가 붙습니다.</div></div></div>`;
+}
 function candCard(c) {
   const pv = c.preview || {};
-  const pvHtml = !pv.computable ? `<div class="pv"><div class="big">미리보기</div>${esc(pv.note || '')}</div>`
+  const simHtml = c.sim ? simBody(c.sim, c.scope === '*' ? '정답으로 미리 보기' : `${c.scopeName}에 반영하면`)
+    + (c.simCommon && c.simCommon.computable && (c.simCommon.touched !== c.sim.touched || c.simCommon.cleared !== c.sim.cleared) ? simBody(c.simCommon, '공통으로 반영하면') : '') : '';
+  const pvHtml = simHtml ? simHtml : !pv.computable ? `<div class="pv"><div class="big">미리보기</div>${esc(pv.note || '')}</div>`
     : `<div class="pv"><div class="big">지난 작업 ${pv.jobs}건에 적용하면 ${pv.changed}칸이 바뀝니다</div>
         ${pv.changed ? `사람이 정한 값과 맞음 <b style="color:var(--ok)">${pv.good}</b>, 다름 <b style="color:var(--bad)">${pv.bad}</b>${pv.unknown ? `, 정한 값 없음 ${pv.unknown}` : ''}` : '바뀌는 칸이 없습니다(이미 같은 값이거나 맞는 줄이 없음).'}
         ${(pv.examples || []).length ? `<ul style="margin:6px 0 0;padding-left:16px">${pv.examples.slice(0, 3).map(e => `<li>${esc(e.desc || e.row + '번째 줄')}: ${esc(e.before || '빈 칸')}<span class="arrow">→</span>${esc(e.after)} ${e.ok === true ? '<span class="bd ok">맞음</span>' : e.ok === false ? '<span class="bd bad">다름</span>' : ''}</li>`).join('')}</ul>` : ''}</div>`;
   return `<div class="cd"><div class="top-l"><span class="bd cand">후보</span><span class="bd kind">${esc(c.kindName)}</span><span class="chip">${esc(c.scopeName)}</span>
       <span class="small muted">근거 ${c.evidenceJobs}건${c.evidenceCount > c.evidenceJobs ? `(${c.evidenceCount}칸)` : ''}, ${when(c.updated_evidence || c.updated)}</span></div>
     <div class="txt">${esc(c.text)}</div>
-    <div class="two"><div><div class="small" style="font-weight:600;margin-bottom:4px">근거</div><ul class="ev" style="margin:0;padding-left:16px">${(c.evidence || []).map(e => `<li>${when(e.time)} ${e.col ? esc(e.col) + ' ' : ''}${e.desc ? `「${esc(e.desc.slice(0, 40))}」 ` : ''}${esc(e.before || '빈 칸')}<span class="arrow">→</span>${esc(e.after)}</li>`).join('')}</ul></div>${pvHtml}</div>
+    <div class="two"><div><div class="small" style="font-weight:600;margin-bottom:4px">근거</div><ul class="ev" style="margin:0;padding-left:16px">${(c.evidence || []).map(e => `<li>${when(e.time)} ${e.col ? esc(e.col) + ' ' : ''}${e.desc ? `「${esc(e.desc.slice(0, 40))}」 ` : ''}${esc(e.before || '빈 칸')}<span class="arrow">→</span>${esc(e.after)}</li>`).join('')}</ul></div><div>${pvHtml}</div></div>
     <div class="acts"><button class="btn sm" data-a="reject" data-id="${c.id}" type="button">거절</button>
       ${c.scope !== '*' && !['check', 'required'].includes(c.kind) ? `<button class="btn sm up" data-a="activate" data-scope="*" data-id="${c.id}" type="button" title="모든 공급사에 씁니다">공통으로 반영</button>` : ''}
       <button class="btn sm pri" data-a="activate" data-id="${c.id}" type="button">${c.scope === '*' ? '반영' : esc(c.scopeName) + '에 반영'}</button></div></div>`;

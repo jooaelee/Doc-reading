@@ -91,17 +91,17 @@ class 새_규칙(unittest.TestCase):
         self.assertEqual(graded({"dims_cm": dims, "measurement_cbm": 2.0}, "measurement_cbm"), "OK")
         self.assertEqual(graded({"dims_cm": dims, "measurement_cbm": 5.0}, "measurement_cbm"), "WARN")
 
-    def test_n_치수가_글자나_목록으로_와도_판독이_죽지_않는다(self):
-        # 실사용(11/5)에서 치수가 ["120","80","100","2"] 꼴로 와 L×W×H 곱에서
-        # 「can't multiply sequence by non-int of type 'str'」로 판독 전체가 실패했다.
-        for dims in ([["100", "100", "100", "2"]], ["100x100x100x2"], [["100", 100, "100", 2.0]],
-                     [{"l": "100", "w": "100", "h": "100", "n": "2"}]):
-            self.assertEqual(dp.postprocess({"dims_cm": dims})["dims_cm"], [[100, 100, 100, 2]], dims)
-            self.assertEqual(graded({"dims_cm": dims, "measurement_cbm": 2.0}, "measurement_cbm"), "OK", dims)
-        # 길이를 못 읽은 줄은 빼고, 개수가 없으면 1 이다
-        self.assertEqual(dp.postprocess({"dims_cm": [["N/A", "1", "1", "1"], "120x80x100", None]})["dims_cm"],
-                         [[120, 80, 100, 1]])
-        run({"dims_cm": [["120", "80", "100", "2"]], "awb_chargeable": 400, "measurement_cbm": 1.9})
+    def test_n_치수에_글자가_섞여도_검증이_죽지_않는다(self):
+        # 실제 서류 점검(11/6)에서 모델이 치수를 "120 x 80" 같은 글자로 넣어 verify 의 곱셈이
+        # TypeError 로 죽고 묶음 전체가 「오류」로 끝났다. 숫자인 치수만 쓰고 나머지는 버린다.
+        dims = [{"l": "100", "w": "100", "h": "100", "n": "2"},     # 글자로 온 숫자는 숫자로 본다
+                {"l": "120 x 80", "w": "N/A", "h": None, "n": 1}]    # 숫자가 안 되는 치수는 버린다
+        self.assertEqual(graded({"dims_cm": dims, "measurement_cbm": 2.0}, "measurement_cbm"), "OK")
+        self.assertEqual(graded({"dims_cm": dims, "awb_chargeable": 333.5, "awb_gross": 10.0}, "chargeable"), "OK")
+        # postprocess 를 거치지 않은 목록 꼴에 글자가 있어도 같다
+        raw = {"dims_cm": [["100", "100", "100", "2"], ["abc", 1, 1, 1]], "measurement_cbm": 2.0}
+        got = [g for g, k, _ in dp.verify(raw, [FakePage()], {}) if k == "measurement_cbm"]
+        self.assertEqual(got, ["OK"])
 
     def test_o_인코텀즈와_운임_조건이_어긋나면_짚는다(self):
         self.assertEqual(graded({"incoterms": "FOB", "freight_term": "COLLECT"},

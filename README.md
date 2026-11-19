@@ -59,6 +59,12 @@
 | 설치 점검 | `python tools/make_sample.py` 다음 `python tools/selfcheck.py` (스캔은 `--scan`) |
 | 긴 묶음 빠짐 시험 | `python tools/make_sample.py --lines 120 --invoices 3 --name long` 다음 `python tools/selfcheck.py --name long` |
 | 실제 서류 일괄 점검 | `python tools/batch_check.py work/docs_raw/hx --limit 10` (이어 하려면 `--resume`) |
+| 나눠 읽기 | 서버를 끈 채 `python tools/bulk_jobs.py <폴더> --limit 50` 으로 50건씩 넣고 서버를 켬. 건별 폴더와 한곳에 모인 PDF 를 모두 받음. 이미 넣은 건은 건너뛰므로 같은 명령을 다시 돌리면 다음 50건 |
+| 정확도 재기 | `python tools/accuracy.py` (확정한 정답과 판독을 견줌. `--save 이름` 으로 남기고, 고쳐 다시 읽은 뒤 `--compare 이름` 으로 견줌. `--cases 건 --detail` 로 틀린 칸과 남는 줄) |
+| 규칙 정답 시뮬레이션 | 운영 화면 「학습」 탭에 후보마다 「반영하면」, 「공통으로 반영하면」, 맨 위에 「후보를 모두 반영하면」 이 나옴(확정한 정답의 Main 칸 정확도 전과 후, 바로잡는 칸, 틀어지는 칸, 틀린 값으로 채우는 칸). 명령줄은 `python tools/rule_sim.py`. 열 이름과 판독 지침은 반영한 뒤 다시 읽어 `accuracy.py --compare` 로 견줌 |
+| 학습 후보 다시 만들기 | `python tools/learn_replay.py` 로 미리 보고 `--apply` 로 고침(후보 만드는 기준이 바뀐 뒤, 확정한 정답으로 후보를 새로 만듦. 반영한 규칙은 그대로) |
+| 읽은 작업 맞추기 | 서버를 끈 채 `python tools/jobs_backfill.py` (다시 읽지 않고 통화를 채우고 못 이은 포장명세서 줄을 수량으로 이음. `--dry-run` 으로 미리 봄) |
+| 정답 확정용 일괄 등록 | 서버를 끈 채 `python tools/bulk_jobs.py work/docs_raw/hx --order <일괄 점검 결과 JSON>` 다음 서버를 켬. 건마다 대기 작업이 되어 차례로 읽히고, 고객 화면 목록에서 열어 확정함(`--dry-run` 으로 미리 봄). 보관 기간을 먼저 늘림 |
 | 규칙 보기, 옮기기 | `python tools/wuxi_rules.py list`, `export`, `import <파일>` |
 | 자동 시험 | `python -m pytest tests` (AI 를 부르지 않음. GitHub Actions 설정(`.github/workflows/test.yml`)이 있어, 계정에서 Actions 를 쓸 수 있으면 push 마다 돎) |
 

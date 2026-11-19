@@ -38,6 +38,7 @@ COL_FIELD = {
 }
 FIELD_COL = {"sap_code": "Material", "material_code": "Material", "hios_no": "Vendor Part No.", "part_no": "Vendor Part No.",
              "country_of_origin": "원산지", "hs_code": "HS", "unit": "단위"}
+EDIT_KINDS = ("code", "alias", "header", "guide")     # record_edits 가 만드는 후보. 빠짐 검사(check)는 review 가 만든다
 HEADER_LEARN = ("po_no", "po_item_no", "sap_code", "material_code", "hios_no", "part_no", "iv_no", "serial_no")
 MISSING_GUIDE = ("The invoice and packing-list tables of this supplier continue across page breaks and repeat the column "
                  "header on each page. Read every printed line on every page through to the last page, including the lines "
@@ -77,6 +78,9 @@ def feedback(days=30) -> list:
 def field_for(col: str, row: dict) -> str | None:
     """화면의 열이 어떤 판독 칸인지. Material 과 Vendor Part No. 는 원래 값이 어디서 왔는지로 고른다."""
     if col == "Material":
+        # 엑셀 쪽이 하이닉스 자재 번호를 고른 칸(gerp_xlsx.hynix_material). 예전 줄에는 없다
+        if row.get("_mat_key") in ("sap_code", "material_code", "part_no", "hios_no"):
+            return row["_mat_key"]
         if _s(row.get("Sap Code")):
             return "sap_code"
         return "material_code" if _s(row.get("Material Code")) else "sap_code"
@@ -92,6 +96,12 @@ def _part(row: dict) -> str:
 # ───────────────────────────────────────── 원본 표에서 열 이름 찾기
 def _sig(v: str) -> str:
     return re.sub(r"[A-Za-z]", "A", re.sub(r"\d", "9", v.strip()))
+
+
+# 머리글이 아닌 줄. 「PO NO :4302056146」 처럼 이름과 값이 한 줄에 찍힌 줄이 값 위에 있으면 그 값은 표의 열이 아니라
+# 머리 칸 묶음에 있다(열 이름 후보를 만들지 않음). 다섯 자리 넘는 숫자가 든 줄은 다른 품목의 줄이라 건너뛰고 더 올라간다
+_LABEL_VALUE = re.compile(r"[:：]\s*\S*\d")
+_LONG_NUM = re.compile(r"\d{5,}")
 
 
 def find_header(pdfs, value: str) -> str | None:
@@ -120,7 +130,7 @@ def find_header(pdfs, value: str) -> str | None:
                 r = rects[0]
                 words = page.get_text("words")
                 x0, x1 = r.x0 - 4, r.x1 + 4
-                above = [w for w in words if w[3] <= r.y0 + 1 and w[1] >= r.y0 - 420 and w[2] >= x0 and w[0] <= x1]
+                above = [w for w in words if w[3] <= r.y0 + 1 and w[1] >= r.y0 - 420]
                 rows = {}
                 for w in above:
                     rows.setdefault(round(w[1] / 3), []).append(w)
@@ -128,7 +138,13 @@ def find_header(pdfs, value: str) -> str | None:
                 for w in words:
                     line_of.setdefault(round(w[1] / 3), []).append(w)
                 for key in sorted(rows, reverse=True):
-                    ws = sorted(rows[key], key=lambda w: w[0])
+                    ws = sorted((w for w in rows[key] if w[2] >= x0 and w[0] <= x1), key=lambda w: w[0])
+                    if not ws:
+                        continue
+                    # 건너뛰는 줄(다른 품목의 같은 칸)이 값보다 넓으면 열도 그만큼 넓다. 짧은 값이 왼쪽에 붙고
+                    # 머리글이 가운데 찍힌 표(FLUSA4221 의 BISV 와 ITEM CODE)에서 머리글을 놓치지 않게 넓혀 둔다.
+                    # 낱말 하나일 때만 넓힌다. 칸 사이가 좁아 옆 칸 낱말이 걸리면 열이 옆 칸까지 번진다
+                    span = (min(w[0] for w in ws) - 4, max(w[2] for w in ws) + 4) if len(ws) == 1 else (x0, x1)
                     # 머리글은 값보다 넓은 일이 많다. 같은 줄에서 띄어쓰기 한 칸 안쪽으로 붙은 낱말을 양옆으로 더 잇는다
                     full = sorted(line_of.get(key, ws), key=lambda w: w[0])
                     i0, i1 = full.index(ws[0]), full.index(ws[-1])
@@ -139,9 +155,14 @@ def find_header(pdfs, value: str) -> str | None:
                         i1 += 1
                         ws = ws + [full[i1]]
                     text = " ".join(w[4] for w in ws).strip()
-                    if not text or text == v or _sig(text) == _sig(v) or not re.search(r"[A-Za-z一-鿿가-힣]", text):
+                    if (not text or text == v or _sig(text) == _sig(v) or not re.search(r"[A-Za-z一-鿿가-힣]", text)
+                            or re.fullmatch(r"[\d.,\-/ ]+", text)):
+                        x0, x1 = min(x0, span[0]), max(x1, span[1])
                         continue
-                    if re.fullmatch(r"[\d.,\-/ ]+", text):
+                    if _LABEL_VALUE.search(text):
+                        return None
+                    if _LONG_NUM.search(text):
+                        x0, x1 = min(x0, span[0]), max(x1, span[1])
                         continue
                     if len(text) > 40:
                         return None
@@ -152,10 +173,6 @@ def find_header(pdfs, value: str) -> str | None:
 
 
 # ───────────────────────────────────────── 신호 받기
-# 앱이 채우는 열. 판독 값이 아니므로 바뀌어도 학습 신호로 보지 않는다
-NOT_LEARNED = {"파일명"}
-
-
 def diff(job: dict, final_items: list, deleted: list | None = None) -> dict:
     """AI 값(payload.items)과 최종 값의 차이. 최종 줄의 _i 가 원래 줄 번호이고, _i 가 없는 줄은 사람이 더한 줄이다."""
     orig = (job.get("payload") or {}).get("items") or []
@@ -167,13 +184,13 @@ def diff(job: dict, final_items: list, deleted: list | None = None) -> dict:
             continue
         i = row.get("_i")
         if not isinstance(i, int) or not (0 <= i < len(orig)):
-            if any(_s(row.get(c)) for c in cols if c not in NOT_LEARNED):
+            if any(_s(row.get(c)) for c in cols):
                 added.append(k)
             continue
         seen.add(i)
         o = orig[i]
         for c in cols:
-            if c.startswith("_") or c not in row or c in NOT_LEARNED:
+            if c.startswith("_") or c not in row:
                 continue
             b, a = _s(o.get(c)), _s(row.get(c))
             if b != a:
@@ -188,16 +205,23 @@ def record_edits(job: dict, final_items: list, deleted=None, by="", kind="xlsx")
     d = diff(job, final_items, deleted)
     sid = job.get("supplier") or R.COMMON
     jid = job.get("id", "")[:12]
-    made = []
+    made, todo = [], []
     for c in d["cells"]:
         _log({"type": "cell", "job": jid, "supplier": sid, "col": c["col"], "before": c["before"], "after": c["after"],
               "desc": c["desc"][:80], "via": kind})
         ev = {"job": jid, "time": time.time(), "row": c["row"], "col": c["col"], "before": c["before"],
               "after": c["after"], "desc": c["desc"][:120], "invoice": c["invoice"], "supplier": sid}
-        for kind_, data in suggest(c, job):
-            r = R.upsert_candidate(kind_, sid, data, ev)
-            if r:
-                made.append(r["id"])
+        todo += [(kind_, data, ev) for kind_, data in suggest(c, job)]
+    # 같은 작업을 다시 확정하면 차이를 AI 값부터 새로 센다. 그 전 확정에서 이 작업이 남긴 후보 근거는 걷어 내고,
+    # 이번에 다시 나오지 않는 후보는 근거가 없으면 지운다
+    again = [(k, sid, R.key_of(k, dt)) for k, dt, _ in todo]
+    if d["added"]:
+        again.append(("guide", sid, R.key_of("guide", {"text": MISSING_GUIDE})))
+    R.drop_job_evidence(jid, EDIT_KINDS, again=again)
+    for kind_, data, ev in todo:
+        r = R.upsert_candidate(kind_, sid, data, ev)
+        if r:
+            made.append(r["id"])
     if d["added"]:
         _log({"type": "added", "job": jid, "supplier": sid, "n": len(d["added"]), "via": kind})
         r = R.upsert_candidate("guide", sid, {"text": MISSING_GUIDE, "label": MISSING_LABEL},
@@ -211,6 +235,14 @@ def record_edits(job: dict, final_items: list, deleted=None, by="", kind="xlsx")
                "candidates": sorted(set(made)), "time": time.time(), "via": kind}
     job["edits"] = {**summary, "detail": [{k: v for k, v in c.items() if k != "orig"} for c in d["cells"][:300]]}
     return summary
+
+
+# 그 묶음에만 있는 품명. 수량(6EA), 슬롯 번호(#24), 날짜(02/12/2026)가 든 품명은 다음 묶음에서 같은 글자로 오지 않는다
+_ONE_OFF_DESC = re.compile(r"\d\s*EA\b|#\s*\d|\b\d{1,2}/\d{1,2}/\d{2,4}\b", re.I)
+
+
+def one_off_desc(desc: str) -> bool:
+    return bool(_ONE_OFF_DESC.search(_s(desc)))
 
 
 def suggest(c: dict, job: dict) -> list:
@@ -232,7 +264,7 @@ def suggest(c: dict, job: dict) -> list:
         part = c.get("part")
         if part and f not in ("hios_no", "part_no"):
             out.append(("code", {"on": "part", "key": part, "field": f, "value": a, "mode": "fill" if not b else "replace"}))
-        elif c.get("desc"):
+        elif c.get("desc") and not one_off_desc(c["desc"]):
             out.append(("code", {"on": "desc", "key": c["desc"], "match": "exact", "field": f, "value": a,
                                  "mode": "fill" if not b else "replace"}))
     return out
@@ -302,7 +334,7 @@ def preview(rule: dict, jobs: list) -> dict:
     if kind not in ("code", "alias"):
         why = {"header": "열 이름은 판독할 때 쓰이므로, 반영한 뒤 그 공급사 서류를 「다시 읽기」로 확인합니다.",
                "guide": "판독 지침은 판독할 때 쓰이므로, 반영한 뒤 그 공급사 서류를 「다시 읽기」로 확인합니다.",
-               "check": "빠짐 검사 설정은 다음 판독부터 판정에 쓰입니다.",
+               "check": "빠짐 검사를 켜고 끈 것은 1분 안에 확정하지 않은 작업의 판정에도 다시 겁니다. 금액 허용 차이는 다음 판독부터 쓰입니다.",
                "required": "필수 칸 설정은 다음 판독부터 확인 화면 표시에 쓰입니다."}[kind]
         return {"computable": False, "note": why}
     target = FIELD_COL.get(d["field"])

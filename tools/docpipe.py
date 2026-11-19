@@ -212,6 +212,17 @@ AIR_WORDS = re.compile(r"air waybill|airport of|\(hawb\)|\(mawb\)|flight/date|ai
 _HINT_WORDS = None
 
 
+def unshiftable(t):
+    """한 폭으로 되돌리면 멀쩡한 글이 되는 쪽인지. 되돌린 글이 더는 밀린 글로 안 보이는 폭이 하나라도 있으면 참."""
+    for off in list(range(-40, 41)) + [-817, 817]:
+        if off == 0:
+            continue
+        u = "".join(c if c.isspace() else (chr(ord(c) - off) if 32 <= ord(c) - off < 127 else c) for c in t)
+        if not is_garbled(u):
+            return True
+    return False
+
+
 def unshift_hint(t):
     """밀린 쪽의 종류를 가르려고 되돌려 본다. 값을 읽는 데는 안 쓴다(숫자가 사라진다).
 
@@ -280,7 +291,14 @@ def classify(page: Page):
             and not re.search(r"air waybill|airport of departure|bill of lading no|b/l no", t):
         best = "OTHER"                    # 위험물 신고서. 항공과 해상 낱말이 다 찍힌다
     page.kind = best if page.score.get(best, 0) >= floor else "OTHER"
-    page.sea = page.kind == "AWB" and bool(SEA_WORDS.search(t) or re.search(r"billoflading|b/lno|checkb/l|oceanvessel|multimodaltransport|onboarddate", t_ns)) and not AIR_WORDS.search(t)
+    if page.garbled and page.kind == "OTHER" and not unshiftable(page.text):
+        # 🔴 글꼴이 글자 번호(glyph id)로 찍혀 한 폭으로 밀린 것이 아니면(PSK: 「dĞƌŵƐ」 가 Terms, 글자마다 폭이 다름)
+        #    되돌려도 낱말이 안 나와 「기타」 로 버려졌다. 인보이스를 못 찾아 품목이 0줄(10월 PSK 10건, 11/17).
+        #    어느 폭으로도 되돌릴 수 없는 쪽만 스캔 쪽처럼 OCR 로 읽어 종류를 다시 가른다(route_scans).
+        #    한 폭으로 밀린 뒷장(낱말 없는 인보이스 둘째 장)은 그대로 「기타」 로 두어 앞 서류에 붙인다
+        page.kind = "SCAN"
+        return page
+    page.sea =page.kind == "AWB" and bool(SEA_WORDS.search(t) or re.search(r"billoflading|b/lno|checkb/l|oceanvessel|multimodaltransport|onboarddate", t_ns)) and not AIR_WORDS.search(t)
     return page
 
 # ---------- 2. 모델 입력 ----------
@@ -464,7 +482,13 @@ HYNIX_CODES = {"sap_code": STR, "po_no": STR, "po_item_no": STR, "iv_no": STR, "
 HYNIX_CI_LINE = {"type": "array", "items": {"type": "object", "additionalProperties": False,
                  "properties": {"seq": NUM, "invoice_no": STR, **HYNIX_CODES,
                                 "description": STR, "qty": NUM, "unit": STR, "unit_price": NUM,
-                                "amount": NUM, "hs_code": STR, "country_of_origin": STR},
+                                "amount": NUM, "hs_code": STR, "country_of_origin": STR,
+                                # 🔴 한 줄의 수량을 PO 마다 나눠 적은 인보이스(동진 「(4303544462 : 16)」, 와이씨켐
+                                #    「4303517252 (YHS-140 32 GAL)」). G-ERP 는 PO 마다 한 행이라, 합쳐 읽으면 사람이
+                                #    줄을 더해야 했다(11/16, 10월 5건). 줄은 인쇄된 대로 두고 나눔만 받아, 빠짐 검사 뒤에
+                                #    엔진이 나눈다(wuxi_engine.split_by_po). 포장명세서와 줄 수 견주기가 그대로 맞는다.
+                                "po_split": {"type": "array", "items": {"type": "object", "additionalProperties": False,
+                                             "properties": {"po_no": STR, "qty": NUM}, "required": ["po_no", "qty"]}}},
                  # 🔴 고객 요구 항목(’26.09.30 메일)은 전부 필수로 둔다. 출력 토큰을 줄이려고
                  #    unit 과 country_of_origin 을 필수에서 뺐더니 모델이 통째로 생략했고
                  #    UNIT 이 44줄 중 0줄로 나왔다. 벽시계는 그렇게 해도 안 줄었다(26.3 → 26.7초).
@@ -634,6 +658,7 @@ Line-level rules. The buyer loads these lines into an ERP screen that links each
   - sap_code: the column headed "Sap Code" or "SAP Code".
   - po_no: the column headed "Po No.", "PO No." or "Purchase Order".
   - po_item_no: the column headed "Po Item No." or "PO Item". It is usually a short zero-padded number such as 00010.
+  - po_split: when the invoice divides this line's quantity among several purchase orders, one entry per order with its po_no and qty as printed, for example "(4303544462 : 16)" printed under the line, or a list such as "4303517252 (YHS-140 32 GAL)" that names this line's model. Keep the line itself as printed and do not split it into several ci_lines. Empty array when the invoice prints no such breakdown for the line.
   - iv_no: the column headed "SK Hynix I/V No." or "I/V No.".
   - hios_no: the column headed "HIOS No.".
   - material_code: the column headed "Material", "Material No", "Material Code" or "Item Code", whatever else the table also prints. It is a different column from sap_code; a table often prints both, and each line then carries both values. Null only when no such column is printed.
@@ -1166,7 +1191,12 @@ WAIT_RESULT = os.environ.get("DOCPIPE_WAIT_RESULT", "") == "1"
 OCR_ENGINE = os.environ.get("DOCPIPE_OCR_ENGINE", "").strip().lower()
 # rapid 는 한 쪽에 1~3초가 든다. 쪽 종류와 B/L 번호는 윗부분에 찍히므로 위쪽만 읽어 시간을 줄일 수 있다(1.0 이면 전체).
 OCR_CROP = float(os.environ.get("DOCPIPE_OCR_CROP", "1.0"))
-OCR_WORKERS = int(os.environ.get("DOCPIPE_OCR_WORKERS", str(max(1, min(8, (os.cpu_count() or 2) // 2)))))
+# 🔴 일꾼 수와 일꾼마다 스레드 수. 예전에는 코어 절반만큼 일꾼을 띄우고 일꾼마다 스레드 하나였다(16코어면 8x1).
+#    한 건의 스캔 쪽은 대개 1~4쪽이라 일꾼 8개 중 넷은 놀고, 한 쪽을 스레드 하나로 읽어 4쪽에 25~28초가 들었다.
+#    일꾼 4개에 스레드 3개씩이면 4쪽이 13~14초, 16쪽은 그대로 50초 안팎이다(11/15, i5-1340P 노트북에서 번갈아 잼).
+_CPU = os.cpu_count() or 2
+OCR_WORKERS = int(os.environ.get("DOCPIPE_OCR_WORKERS", str(max(1, min(8, _CPU // 4)))))
+OCR_THREADS = int(os.environ.get("DOCPIPE_OCR_THREADS", str(max(1, min(4, (_CPU * 3 // 4) // OCR_WORKERS)))))
 _RAPID_POOL = None
 
 
@@ -1200,23 +1230,45 @@ _rapid_eng = None
 _rapid_v3 = False
 
 
+def no_power_throttle() -> bool:
+    """Windows 가 이 프로세스를 「효율 모드」로 늦추지 않게 한다(배터리로 도는 노트북에서 OCR 이 서너 배 느려짐, 11/15).
+    시스템 설정이 아니라 이 프로세스에만 거는 표시다. DOCPIPE_NO_THROTTLE=0 이면 안 건다."""
+    if sys.platform != "win32" or os.environ.get("DOCPIPE_NO_THROTTLE", "1") == "0":
+        return False
+    try:
+        import ctypes
+        from ctypes import wintypes
+
+        class _PPT(ctypes.Structure):
+            _fields_ = [("Version", wintypes.ULONG), ("ControlMask", wintypes.ULONG), ("StateMask", wintypes.ULONG)]
+        st = _PPT(1, 0x1, 0)            # EXECUTION_SPEED 를 다루되 끈다
+        k = ctypes.WinDLL("kernel32", use_last_error=True)
+        k.GetCurrentProcess.restype = wintypes.HANDLE
+        k.SetProcessInformation.argtypes = [wintypes.HANDLE, ctypes.c_int, ctypes.c_void_p, wintypes.DWORD]
+        k.SetProcessInformation.restype = wintypes.BOOL
+        return bool(k.SetProcessInformation(k.GetCurrentProcess(), 4, ctypes.byref(st), ctypes.sizeof(st)))  # ProcessPowerThrottling
+    except Exception:
+        return False
+
+
 def _rapid_init():
     """RapidOCR 를 띄운다. 파이썬 3.12 까지는 rapidocr_onnxruntime(1.x), 3.13 부터는 rapidocr(3.x) 를 쓴다.
 
     두 판은 부르는 법과 돌려주는 꼴이 다르다. 1.x 는 ([상자, 글, 점수], 시간), 3.x 는 boxes, txts, scores 를 가진 객체다.
     """
     global _rapid_eng, _rapid_v3
-    os.environ["OMP_NUM_THREADS"] = "1"
+    no_power_throttle()
+    os.environ["OMP_NUM_THREADS"] = str(OCR_THREADS)
     try:
         from rapidocr_onnxruntime import RapidOCR
-        _rapid_eng = RapidOCR(intra_op_num_threads=1, inter_op_num_threads=1)
+        _rapid_eng = RapidOCR(intra_op_num_threads=OCR_THREADS, inter_op_num_threads=1)
         _rapid_v3 = False
     except ImportError:
         import logging
         from rapidocr import RapidOCR
         logging.getLogger("RapidOCR").setLevel(logging.WARNING)
         _rapid_eng = RapidOCR(params={"Global.use_cls": False, "Global.log_level": "warning",
-                                      "EngineConfig.onnxruntime.intra_op_num_threads": 1,
+                                      "EngineConfig.onnxruntime.intra_op_num_threads": OCR_THREADS,
                                       "EngineConfig.onnxruntime.inter_op_num_threads": 1})
         _rapid_v3 = True
 
@@ -1905,14 +1957,109 @@ def call_split(model, pages, paths, how, caller="cli"):
     return raw, stat
 
 
+_COPY_ID_KEYS = {"invoice_no", "po_no", "po_item_no", "case_no", "hs_code"}
+_CODE_PAIR = ("part_no", "material_code", "sap_code")
+
+
+def _row_sig(x):
+    """줄 하나에서 사본 비교에 쓰는 칸만 남긴다. 숫자 칸(수량, 단가, 금액, 중량)과 번호 칸이다.
+
+    품명, 모델, 원산지, 단위 같은 글자 칸은 스캔 사본마다 OCR 이 다르게 읽는다. 차례(seq)는 사본에
+    따라 있다 없다 하고 뜻이 없다(실제 서류 11/6).
+    """
+    sig = {}
+    # 🔴 Part No, Material Code, SAP 코드는 사본마다 칸이 서로 바뀌어 읽힌다(PNS26025031 은 앞의 둘이 맞바뀌고,
+    # PNS26071952 는 SAP 코드가 Material Code 칸에 들어감, 11/10). 그래서 칸 이름을 떼고 코드를 한 묶음으로
+    # 견준다. 숫자로만 된 코드도 숫자 칸으로 보내지 않는다.
+    codes = frozenset(_norm_code(x.get(k)) for k in _CODE_PAIR if x.get(k) not in (None, ""))
+    if codes:
+        sig["_codes"] = codes
+    for k, val in x.items():
+        if val in (None, "") or isinstance(val, bool) or k == "seq" or k in _CODE_PAIR:
+            continue
+        n = num(val)
+        if n is None and isinstance(val, str):
+            # "0.24KG", "1.0 kg" 처럼 단위가 붙은 숫자도 숫자다
+            m = re.match(r"^\s*(-?\d[\d,]*(?:\.\d+)?)\s*[A-Za-z%]{0,4}\s*$", val)
+            if m:
+                n = num(m.group(1))
+        if n is not None:
+            sig[k] = n
+        elif k in _COPY_ID_KEYS:
+            sig[k] = _norm_code(val)
+    return sig
+
+
+def _norm_code(val):
+    """OCR 이 붙임표를 다른 글자(‐, –)로 읽거나 띄어쓰기를 넣어도 같은 번호다."""
+    return re.sub(r"[‐-―−-]+", "-", str(val)).replace(" ", "").upper()
+
+
+def _sig_eq(k, a, b):
+    if k == "_codes":
+        # 한 사본은 Part No 를 OCR 이 틀리게 읽기도 해서(11/6), 두 코드 중 하나라도 겹치면 같다고 본다.
+        # 견줄 숫자 칸이 줄마다 함께 맞아야 하므로 코드 하나만으로 사본이 되지는 않는다
+        return bool(a & b)
+    return a == b
+
+
+def _same_lines(a, b):
+    """두 줄 목록이 같은 서류의 사본인가.
+
+    줄 수가 같고, 줄마다 둘 다 가진 숫자 칸과 번호 칸이 모두 같아야 한다. 한쪽에만 있는 칸(한 사본만
+    case_no 나 part_no 를 읽은 경우)은 견주지 않는다. 견준 칸이 목록 전체로 둘이 안 되면 근거가
+    모자라므로 다른 목록으로 본다.
+    """
+    if not a or len(a) != len(b):
+        return False
+    compared = 0
+    code_typo = 0
+    for x, y in zip(a, b):
+        if isinstance(x, dict) != isinstance(y, dict):
+            return False
+        if not isinstance(x, dict):
+            if str(x) != str(y):
+                return False
+            compared += 1
+            continue
+        sx, sy = _row_sig(x), _row_sig(y)
+        shared = [k for k in sx if k in sy]
+        bad = [k for k in shared if not _sig_eq(k, sx[k], sy[k])]
+        if bad == ["_codes"] and len(shared) >= 3 and len(a) >= 3:
+            # 한 사본이 코드 한 글자를 잘못 읽은 줄(5105-200527 과 5105-300527, PNS26071952, 11/10).
+            # 숫자 칸이 다 맞으면 목록 전체에서 한 줄까지만 봐준다. 두 줄 넘게 다르면 다른 서류다
+            code_typo += 1
+            if code_typo > 1:
+                return False
+        elif not shared or bad:
+            return False
+        compared += len(shared)
+    return compared >= 2
+
+
+def _cat_unique(cur, v, seen):
+    """배열을 잇되, 이미 이은 목록과 같은 사본인 목록은 다시 잇지 않는다. seen 은 이은 목록들이다.
+
+    🔴 스캔 묶음에는 같은 인보이스 사본이 서너 부 들어온다(HB, OH, LCA 사본). 사본마다 줄을 읽어
+       그대로 이으면 3줄이 9줄이 되고 금액 합이 총액의 3배가 되어 「빠진 줄 의심」이 뜬다
+       (실제 서류 46건 점검 11/6, 스캔 묶음 11건이 모두 이것). 긴 표를 쪽마다 나눠 부른 조각은
+       줄이 서로 다르므로 그대로 이어진다.
+    """
+    if any(_same_lines(prev, v) for prev in seen):
+        return cur
+    seen.append(v)
+    return cur + v
+
+
 def _merge_chunks(raws):
-    """같은 서류의 조각들을 하나로. 배열은 잇고 나머지는 처음 나온 값이다. 총계는 더하지 않는다."""
+    """같은 서류의 조각들을 하나로. 배열은 잇고(똑같은 사본은 한 번만) 나머지는 처음 나온 값이다. 총계는 더하지 않는다."""
     out = {}
+    seen = {}
     for r in raws:
         for k, v in (r or {}).items():
             if v in (None, "", []): continue
             if k in CAT_KEYS and isinstance(v, list):
-                out[k] = (out.get(k) or []) + v
+                out[k] = _cat_unique(out.get(k) or [], v, seen.setdefault(k, []))
             elif out.get(k) in (None, "", []):
                 out[k] = v
     return out
@@ -1957,7 +2104,12 @@ def merge_parts(parts):
             vals = [r.get(k) for r in raws if r.get(k) not in (None, "", [])]
             if not vals: continue
             if k in CAT_KEYS:
-                v = [x for vv in vals for x in (vv if isinstance(vv, list) else [])]
+                # 같은 종류의 서류가 여럿이면 줄을 잇는다. 번호가 없어 같은 서류로 못 묶인 사본(통관표 두 부)은
+                # 줄 목록이 똑같으므로 한 번만 잇는다.
+                v, seen = [], []
+                for vv in vals:
+                    if isinstance(vv, list):
+                        v = _cat_unique(v, vv, seen)
             elif k in SUM_KEYS and len(raws) > 1:
                 nums = [num(x) for x in vals]
                 v = round(sum(n for n in nums if n is not None), 3) if any(n is not None for n in nums) else vals[0]
@@ -2547,33 +2699,6 @@ def hynix_merge_cn(ex):
     return ex
 
 
-def _dims_rows(dims):
-    """치수를 [[L, W, H, n], ...] 숫자 꼴로 맞춘다.
-
-    스키마는 {l, w, h, n} 꼴을 정하지만 도구가 답을 검사하지 않고, 도구를 못 불러 글로 답한
-    경로도 있다. 그래서 ["120", "80", "100", "2"] 나 "120x80x100" 이 그대로 들어와 검증의
-    L×W×H 곱에서 판독 전체가 「can't multiply sequence」로 죽었다(Windows 실사용 11/5).
-    꼴이 어떻든 숫자로 바꾸고, 길이를 못 읽은 줄은 뺀다. n 이 없으면 1 이다.
-    """
-    out = []
-    for d in dims:
-        if isinstance(d, dict):
-            vals = [d.get("l"), d.get("w"), d.get("h"), d.get("n")]
-        elif isinstance(d, (list, tuple)):
-            vals = list(d[:4])
-        elif isinstance(d, str):
-            vals = re.findall(r"\d[\d,]*(?:\.\d+)?", d)[:4]
-        else:
-            continue
-        vals = [(v if isinstance(v, (int, float)) and not isinstance(v, bool) else _to_num(v) if v is not None else None)
-                for v in vals] + [None] * (4 - len(vals))
-        l, w, h, n = vals
-        if not l:
-            continue
-        out.append([l, w or 0, h or 0, n or 1])
-    return out
-
-
 def _line_str_keys(list_key):
     """이 배열의 줄 항목에서 스키마가 글자라고 적은 칸 이름."""
     it = ((SCHEMA.get("properties") or {}).get(list_key) or {}).get("items") or {}
@@ -2609,6 +2734,51 @@ def _dedupe_h1(ex):
             out.append(x)
         ex["invoice_totals"] = out
     return ex
+
+
+def price_twins(lines, total, qty="qty", amount="amount", codes=_CODE_PAIR):
+    """한 인보이스의 줄 목록이 같은 줄을 금액만 다르게 두 번 담았으면, 총액에 안 맞는 쪽 줄 번호를 낸다. 아니면 빈 목록.
+
+    수리 인보이스는 같은 품목을 「No Commercial Value」 값과 「Repair Charge」 값으로 두 번 찍는다(PNS26081814: 27줄씩,
+    합 117,913.71 과 44,189.20, 총액 44,189.20). 앞뒤 반(표 둘)이나 번갈아(줄마다 두 값) 담긴다.
+    🔴 두 쪽이 차례마다 코드와 수량이 같아야 하고(같은 줄), 한쪽 금액 합만 총액과 맞아야 뺀다. 그렇지 않으면 아무것도
+       빼지 않는다(서로 다른 줄일 수 있음). 줄 금액이 하나라도 비면 따지지 않는다.
+    """
+    n = len(lines)
+    if n < 2 or n % 2 or not total:
+        return []
+    amts = [num(l.get(amount)) for l in lines]
+    if any(a is None for a in amts) or close(sum(amts), total):
+        return []
+
+    def twin(a, b):
+        """0 같은 줄, 1 수량은 같고 코드만 다름, 2 다른 줄."""
+        if num(a.get(qty)) != num(b.get(qty)):
+            return 2
+        ca = {_norm_code(a.get(k)) for k in codes if a.get(k) not in (None, "")}
+        cb = {_norm_code(b.get(k)) for k in codes if b.get(k) not in (None, "")}
+        return 0 if (ca & cb if ca and cb else not ca and not cb) else 1
+
+    h = n // 2
+    for first, second in ((list(range(h)), list(range(h, n))), (list(range(0, n, 2)), list(range(1, n, 2)))):
+        t = [twin(lines[i], lines[j]) for i, j in zip(first, second)]
+        # 스캔 사본은 코드 한 글자를 잘못 읽는다(PNS26081814 의 MMF07202 와 MMF07366). 세 줄 넘는 목록에서 한 줄까지 봐준다
+        if 2 in t or t.count(1) > (1 if h >= 3 else 0):
+            continue
+        s1, s2 = sum(amts[i] for i in first), sum(amts[i] for i in second)
+        if close(s1, total) and not close(s2, total):
+            return second
+        if close(s2, total) and not close(s1, total):
+            return first
+        # 어느 쪽도 총액과 꼭 맞지 않을 때(판독이 Total Amount 를 총액으로 받고 줄 하나를 조금 다르게 읽음,
+        # PNS26081814 는 39,102.91 과 123,000, 총액 44,189.20). 한쪽만 총액을 넘으면 넘는 쪽은 그 인보이스의 줄일 수
+        # 없다. 남은 쪽도 총액과 안 맞으므로 빠짐 검사(금액 합)는 그대로 「빠진 줄 의심」을 띄운다
+        over = 1.01 * total
+        if s2 > over >= s1:
+            return second
+        if s1 > over >= s2:
+            return first
+    return []
 
 
 def postprocess(ex, customer=None):
@@ -2664,8 +2834,18 @@ def postprocess(ex, customer=None):
         ex["po_list"] = [x for x in ex["po_list"] if re.search(r"\d", str(x or ""))]
     for k in ("ci_lines", "pl_lines", "lca_lines"):
         if ex.get(k): ex[k] = [ln for ln in ex[k] if any(isinstance(x, (int, float)) and x for x in ln.values())]
-    if isinstance(ex.get("dims_cm"), list):
-        ex["dims_cm"] = _dims_rows(ex["dims_cm"])
+    if ex.get("dims_cm") and isinstance(ex["dims_cm"][0], dict):
+        # 🔴 치수 칸은 숫자로만 남긴다. 모델이 "120 x 80" 이나 "N/A" 같은 글자를 l 에 넣으면 위의 숫자
+        #    바꾸기가 못 바꾸고 글자가 남았고, verify 의 곱셈이 TypeError 로 죽어 그 묶음 전체가
+        #    「오류」로 끝났다(실제 서류 점검 11/6, 스캔 3건). 숫자가 안 되는 치수는 버린다.
+        rows = []
+        for d in ex["dims_cm"]:
+            if not isinstance(d, dict):
+                continue
+            l, w, h, n = (num(d.get(k)) for k in ("l", "w", "h", "n"))
+            if l:
+                rows.append([l, w or 0, h or 0, n or 1])
+        ex["dims_cm"] = rows
     # 수리 인보이스는 같은 줄이 두 표(원래 값, 수리 값)에 찍힌다. 모델이 둘 다 담으면 총액에 맞는 쪽만 남긴다.
     lines, tot = ex.get("ci_lines") or [], num(ex.get("ci_total"))
     if tot and len(lines) >= 2 and len(lines) % 2 == 0:
@@ -2675,6 +2855,18 @@ def postprocess(ex, customer=None):
             for part in (lines[h:], lines[:h]):
                 if close(sum(num(l.get("amount")) for l in part), tot):
                     ex["ci_lines"] = part; ex["ci_lines_dropped"] = h; break
+    # 하이닉스 판은 총액을 인보이스마다 invoice_totals 로 받는다. 같은 규칙을 인보이스별로 건다(PNS26081814, 11/12)
+    tots = {_norm_code(t.get("invoice_no")): num(t.get("total")) for t in ex.get("invoice_totals") or []
+            if isinstance(t, dict) and t.get("invoice_no") and num(t.get("total"))}
+    if tots and ex.get("ci_lines"):
+        drop = set()
+        for inv, tot in tots.items():
+            idx = [i for i, l in enumerate(ex["ci_lines"]) if isinstance(l, dict)
+                   and (_norm_code(l.get("invoice_no")) == inv or (len(tots) == 1 and not l.get("invoice_no")))]
+            drop |= {idx[i] for i in price_twins([ex["ci_lines"][i] for i in idx], tot)}
+        if drop:
+            ex["ci_lines"] = [l for i, l in enumerate(ex["ci_lines"]) if i not in drop]
+            ex["ci_lines_dropped"] = (ex.get("ci_lines_dropped") or 0) + len(drop)
     lca = ex.get("lca_lines") or []
     fixed = 0
     for ln in lca:   # "54.540" 처럼 점이 천 단위 구분자인 값. 환율 곱으로 알아내 1000배로 고친다
@@ -2818,6 +3010,19 @@ def num(x):
 def close(a, b, tol=0.011):
     return a is not None and b is not None and abs(a - b) <= max(tol, abs(b) * 0.001)
 
+def _numeric_dims(dims):
+    """치수 목록 [[L,W,H,n], ...] 에서 네 값이 모두 숫자인 것만 돌려준다. postprocess 를 거치지 않은 값이나
+    글자가 섞인 값이 와도 verify 의 곱셈이 죽지 않게 한다."""
+    out = []
+    for d in dims or []:
+        if not isinstance(d, (list, tuple)) or len(d) != 4:
+            continue
+        l, w, h, n = (num(v) for v in d)
+        if l is None or w is None or h is None:
+            continue
+        out.append([l, w, h, n or 1])
+    return out
+
 def load_code_lists(path):
     """닫힌 코드 목록. 두 가지를 받는다.
 
@@ -2838,6 +3043,26 @@ def load_code_lists(path):
         if cur and code is not None:
             lists.setdefault(cur, set()).add(str(code).strip())
     return lists
+
+def _flight_split_in_text(v, pages) -> bool:
+    """편명(LH687)이 운송장에 항공사 코드와 편 번호로 나뉘어 찍혔나.
+
+    AWB 는 「By First Carrier」 칸에 LH, 「Requested Flight/Date」 칸에 687/21.02 를 따로 찍는다(ORI07793063,
+    11/11). 둘 사이에 다른 칸 글자가 끼어 LH687 이 붙어 나오지 않는다. 지어낸 편명을 잡는 검사이므로 느슨하게
+    하지 않는다. 같은 쪽 안에 코드가 낱말로, 번호가 다른 숫자에 붙지 않은 채로 둘 다 있어야 한다.
+    """
+    m = re.fullmatch(r"\s*([A-Z0-9]{2})\s*-?\s*0*(\d{1,4})[A-Z]?\s*", str(v or "").upper())
+    if not m:
+        return False
+    code, num = m.groups()
+    if not re.search(r"[A-Z]", code):
+        return False
+    for p in pages:
+        t = (p.text + ("\n" + p.ocr if getattr(p, "ocr", "") else "")).upper()
+        if re.search(rf"(?<![A-Z0-9]){code}(?![A-Z0-9])", t) and re.search(rf"(?<![\d.,])0*{num}(?![\d]|[.,]\d)", t):
+            return True
+    return False
+
 
 def verify(ex: dict, pages, codes: dict):
     """ex: 모델이 낸 JSON. 반환: [(등급, 항목, 메시지)]  등급 ∈ OK / WARN / FAIL"""
@@ -2865,6 +3090,8 @@ def verify(ex: dict, pages, codes: dict):
             if any(m.lower() in full.lower() for m in CURRENCY_MARKS[str(v)]): ok(k, f"원문에 있음: {v}"); continue
         if k == "mawb" and re.sub(r"\D", "", str(v)) in re.sub(r"\D", "", full):
             ok(k, f"원문에 있음: {v}"); continue      # 180 ICN 5410 2893 처럼 글자가 끼어 찍힌다
+        if k == "flight1" and _flight_split_in_text(v, pages):
+            ok(k, f"원문에 있음(항공사 코드와 편 번호가 따로 찍힘): {v}"); continue
         if re.sub(r"[\s,\-]", "", str(v)).lower() in flat: ok(k, f"원문에 있음: {v}")
         elif has_scan: warn(k, f"텍스트에 없음. 스캔 쪽에서 읽었을 수 있다: {v}")
         else: fail(k, f"원문에 없는 값: {v}")
@@ -2941,7 +3168,7 @@ def verify(ex: dict, pages, codes: dict):
         (ok if close(a, b) else fail)("net_weight", f"PL {a:g} vs CI {b:g}")
 
     # (e) 용적중량: Σ L×W×H/6000 vs chargeable  (chargeable = max(gross, volumetric) 반올림)
-    dims = ex.get("dims_cm") or []      # [[L,W,H,n], ...]
+    dims = _numeric_dims(ex.get("dims_cm"))      # [[L,W,H,n], ...] 숫자인 것만
     ch, gw = num(ex.get("awb_chargeable")), gws.get("awb_gross")
     if dims and ch is not None:
         vol = sum(l * w * h * n / 6000 for l, w, h, n in dims)
@@ -3296,8 +3523,10 @@ def to_so_row(ex):
 # ---------- 실행 ----------
 def run(bundles, codes_xlsx, extractions=None, show=True, llm=None, model=None, anthropic=False, vision=False,
         truth=None, llm_key=None, upstage_ie=False, masters=None, customer=None, mail_values=None,
-        claude_cli=False, claude_bin="claude", claude_think=False, claude_config_dir=None, split=None):
-    """bundles: [(이름, [pdf 경로, ...]), ...]. llm 은 OpenAI 호환 /v1 주소, anthropic=True 면 Anthropic API."""
+        claude_cli=False, claude_bin="claude", claude_think=False, claude_config_dir=None, split=None, prepared=None):
+    """bundles: [(이름, [pdf 경로, ...]), ...]. llm 은 OpenAI 호환 /v1 주소, anthropic=True 면 Anthropic API.
+    prepared: {이름: 쪽들}. 부르는 쪽이 이미 쪽을 가르고 스캔 쪽을 OCR 해 두었으면 그 쪽들을 그대로 쓴다.
+    (그림 파일 page.png 를 지우는 것도 부르는 쪽 몫이다.)"""
     codes = load_code_lists(codes_xlsx) if codes_xlsx else {}
     masters = masters or {}
     if split is None: split = SPLIT
@@ -3305,9 +3534,15 @@ def run(bundles, codes_xlsx, extractions=None, show=True, llm=None, model=None, 
     extractions = dict(extractions or {})
     for name, paths in bundles:
         t0 = time.perf_counter()
-        pages = apply_awb_sort([classify(p) for path in paths for p in load_pdf(path)])
-        scan_dir = ocr_pages(pages)
-        route_scans(pages)
+        # 🔴 화면(wuxi_engine.read_bundle)은 공급사를 알아보려고 이미 쪽을 가르고 스캔 쪽을 OCR 했다. 여기서
+        #    다시 하면 같은 OCR 을 두 번 한다. 스캔 4쪽짜리 건에서 OCR 한 번에 20초쯤 들어 건당 시간의 3분의 1이
+        #    중복이었다(11/15). 받은 쪽이 있으면 그대로 쓴다. 결과는 같다(같은 파일, 같은 엔진, 같은 해상도).
+        if prepared and name in prepared:
+            pages, scan_dir = prepared[name], None
+        else:
+            pages = apply_awb_sort([classify(p) for path in paths for p in load_pdf(path)])
+            scan_dir = ocr_pages(pages)
+            route_scans(pages)
         t1 = time.perf_counter()
         sel = select_pages(pages)
         kept = set(id(p) for p in sel)
