@@ -88,11 +88,23 @@ def _key_desc(v) -> str:
     return re.sub(r"[^0-9A-Z]", "", str(v or "").upper())
 
 
+# ENF 인보이스: 「Your PO No.」 칸에 「4353550049（1） 4303517327（159）」 처럼 PO 와 수량만 적는다(모델 없음, 전각 괄호).
+# 줄마다 어느 PO 인지는 안 찍히고, 수량이 그 합과 같은 줄을 PO 마다 나눈다(11/19 COKR26014289, 사용자 결정).
+# 하이닉스 PO 꼴(4 로 시작하는 10자리)만 받고, 다른 PO 두 개 이상일 때만 쓴다
+PO_QTY = re.compile(r"(?<!\d)(4\d{9})\s*[（(]\s*([\d,]+(?:\.\d+)?)\s*[）)]")
+ANY_LINE = "*"          # _text_splits 에서 모델 없이 모든 줄에 쓰는 나눔
+
+
 def _text_splits(text: str) -> dict:
-    """글자층의 「PO (모델 수량 단위)」 를 모델마다 [(PO, 수량)] 로. 같은 쌍이 여러 쪽에 되풀이되면 한 번만."""
+    """글자층의 「PO (모델 수량 단위)」 를 모델마다 [(PO, 수량)] 로. 같은 쌍이 여러 쪽에 되풀이되면 한 번만.
+    모델 없는 「PO（수량）」 이 PO 두 개 이상이면 ANY_LINE 열쇠에 둔다."""
+    up = str(text or "").upper()
     out = {}
-    for po, model, q in dict.fromkeys(PO_MODEL_QTY.findall(str(text or "").upper())):
+    for po, model, q in dict.fromkeys(PO_MODEL_QTY.findall(up)):
         out.setdefault(_key_desc(model), []).append((po, _num(q.replace(",", ""))))
+    bare = list(dict.fromkeys((po, _num(q.replace(",", ""))) for po, q in PO_QTY.findall(up)))
+    if len({po for po, _ in bare}) >= 2 and len({po for po, _ in bare}) == len(bare):
+        out[ANY_LINE] = bare
     return out
 
 
@@ -150,9 +162,11 @@ def split_by_po(ex: dict, text: str = "") -> int:
         parts = [(str(s.get("po_no") or "").strip(), _num(s.get("qty"))) for s in sp]
         if len(parts) < 2 and isinstance(x, dict):
             d = _key_desc(x.get("description"))
-            hits = [v for k, v in by_model.items() if len(k) >= 4 and k in d]
+            hits = [v for k, v in by_model.items() if k != ANY_LINE and len(k) >= 4 and k in d]
             if len(hits) == 1:
                 parts = hits[0]
+            elif not hits and ANY_LINE in by_model:
+                parts = by_model[ANY_LINE]          # 아래에서 수량 합이 줄 수량과 같을 때만 나뉜다
         qty = _num(x.get("qty")) if isinstance(x, dict) else None
         ok = (len(parts) >= 2 and all(p and q for p, q in parts) and qty is not None
               and abs(sum(q for _, q in parts) - qty) < 1e-6)
