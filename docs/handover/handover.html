@@ -119,7 +119,7 @@ code { font-family: "Cascadia Mono", Consolas, monospace; font-size: 8.8pt; back
 <div class="kv">
   <div class="k">쓰는 사람</div><div>하이닉스 우시 담당자는 고객 화면에 서류를 직접 올립니다(메일 접수 없음). FSK 운영 담당은 운영 화면을 씁니다</div>
   <div class="k">넣는 것</div><div>공급사 서류 묶음 PDF: 인보이스, 포장명세서, 중국 통관 용도설명서, 운송장. 글자 PDF 와 스캔 모두</div>
-  <div class="k">받는 것</div><div>G-ERP 「B/L Item Update」 열 순서의 엑셀. 품목 한 줄마다 품명, PO, PO 품목 번호, SAP 코드, 수량, 단가, 금액, 원산지, 중량, 케이스, 그리고 BL No.(올린 PDF 파일 이름)</div>
+  <div class="k">받는 것</div><div>G-ERP 「B/L Item Update」 입력용 엑셀(BL 한 장이 한 건). BL Item 시트는 화면 표와 같은 열: BL No.(올린 PDF 파일 이름), Po No., Material Code, Item name, Quantity, 단위, Unit Price, 금액, 통화, Invoice No. 등. PO 품목 번호, 원산지, 중량, 케이스는 Sub 항목 시트</div>
   <div class="k">가장 중요한 기준</div><div><b>품목 줄이 하나도 빠지면 안 됩니다.</b> 그래서 AI 답과 상관없는 근거로 줄을 다시 세는 「빠짐 검사」를 따로 둡니다</div>
   <div class="k">판독 계정</div><div>화면을 띄운 PC 나 서버에 로그인된 Claude 계정으로 읽습니다. API 키를 따로 넣지 않습니다</div>
 </div>
@@ -188,7 +188,7 @@ code { font-family: "Cascadia Mono", Consolas, monospace; font-size: 8.8pt; back
   <div><span class="n">1</span><b>묶음 요약</b>: 품목 줄 수, 인보이스 장 수, 파일 수, 걸린 시간.</div>
   <div><span class="n">2</span><b>다시 읽기, 지우기, 확정, 엑셀 받기</b>: 확정한 묶음은 학습의 정답이 됩니다.</div>
   <div><span class="n">3</span><b>빠짐 검사</b>: 초록이면 이상 없음, 노랑이면 「빠진 줄 의심」. 근거마다 맞음, 어긋남, 근거 없음.</div>
-  <div><span class="n">4</span><b>G-ERP 품목 표</b>: 열 순서는 「B/L Item Update」와 같습니다. 칸을 눌러 바로 고칩니다.</div>
+  <div><span class="n">4</span><b>G-ERP 품목 표</b>: 열은 받는 엑셀의 BL Item 시트와 같습니다. 칸을 눌러 바로 고칩니다.</div>
   <div><span class="n">5</span><b>원본 서류</b>: 줄을 누르면 원본의 그 자리가 강조됩니다.</div>
   <div><span class="n">6</span><b>줄 추가와 색 안내</b>: 빠진 줄은 여기서 더합니다. 고친 칸, 운영 규칙으로 채운 칸(청록 선), 필수 칸이 빈 줄이 색으로 보입니다.</div>
 </div>
@@ -521,7 +521,7 @@ code { font-family: "Cascadia Mono", Consolas, monospace; font-size: 8.8pt; back
 
 <h2>A10. 용어</h2>
 <div class="kv">
-  <div class="k">G-ERP</div><div>하이닉스 사내 ERP. 「B/L Item Update」가 이 앱이 만드는 엑셀의 열 순서 기준</div>
+  <div class="k">G-ERP</div><div>하이닉스 사내 ERP. 「B/L Item Update」가 이 앱이 만드는 엑셀의 쓰임새</div>
   <div class="k">인보이스(CI)</div><div>품목, 수량, 단가, 금액이 있는 상업 송장. 엑셀 줄의 기준</div>
   <div class="k">포장명세서(PL)</div><div>줄마다 중량, 케이스 번호</div>
   <div class="k">통관표(CN)</div><div>중국 통관 용도설명서. SAP 코드와 원산지를 여기서 가져옴</div>

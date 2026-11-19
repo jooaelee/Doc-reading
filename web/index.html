@@ -174,7 +174,7 @@ body.cmp .banner .row{margin-top:6px}
         <div class="guide">
           <div><b>1. 올리기</b><span>인보이스, 포장명세서, 통관 용도설명서, 운송장을 한 번에 올립니다. 스캔본도 읽습니다.</span></div>
           <div><b>2. 확인</b><span>줄을 누르면 오른쪽 원본에서 그 자리를 짚습니다. 칸을 눌러 바로 고칩니다.</span></div>
-          <div><b>3. 엑셀</b><span>고친 값 그대로 G-ERP 열 순서의 엑셀로 받습니다. 빠진 줄이 의심되면 맨 위에 알립니다.</span></div>
+          <div><b>3. 엑셀</b><span>고친 값 그대로 화면 표와 같은 열의 엑셀로 받습니다. 빠진 줄이 의심되면 맨 위에 알립니다.</span></div>
         </div>
       </section>
 
@@ -266,7 +266,6 @@ const CMP_COLS = ['Invoice No.', 'Purchase Order', 'Material', '품명', 'Vendor
 const SCREEN_COLS = ['BL No.', 'Purchase Order', 'Material', '품명', 'B/L quantity', '단위', 'Net Price', 'Invoice amount', 'Currency',
   'Invoice No.', '출처', '줄', 'Vendor Part No.'];
 const COL_LABEL = {'Purchase Order': 'Po No.', 'Material': 'Material Code', '품명': 'Item name', 'B/L quantity': 'Quantity', 'Net Price': 'Unit Price'};
-const CMP_LABEL = COL_LABEL;   // 대조 모드도 같은 머리
 const LS = {get(k, d) { try { const v = localStorage.getItem(k); return v == null ? d : JSON.parse(v); } catch (e) { return d; } },
             set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch (e) {} }};
 let CMP = !!LS.get('wuxi_cmp', false), ALL_COLS = false, ZOOM = 1, TW = +LS.get('wuxi_tw', 60) || 60;
@@ -475,7 +474,9 @@ async function poll() {
 }
 
 // ───────── 결과
-function allCols() { const a = P.cols.gerp.concat(P.cols.extra); return SCREEN_COLS.filter(c => a.includes(c) && !HIDE_COLS.includes(c)); }
+// 열 목록과 머리는 서버(gerp_xlsx.SHEET_ITEM_COLS)가 보낸 것을 쓴다. 엑셀 BL Item 시트와 같게. 옛 작업은 아래 값으로
+function allCols() { const a = P.cols.gerp.concat(P.cols.extra); return (P.cols.screen || SCREEN_COLS).filter(c => a.includes(c) && !HIDE_COLS.includes(c)); }
+function colLabel(c) { return ((P && P.cols.labels) || COL_LABEL)[c] || c; }
 function cols() { const a = allCols(); return CMP && !ALL_COLS ? CMP_COLS.filter(c => a.includes(c)) : a; }
 function gapsOf(r) { return (P.required || []).filter(g => !g.some(c => String(r[c] == null ? '' : r[c]).trim())).map(g => g.join(' 또는 ')); }
 function dirtyCount() {
@@ -543,7 +544,7 @@ function drawAside() {
 }
 function drawTable() {
   const cs = cols(), only = P.cols.gerp_only || [];
-  const label = c => COL_LABEL[c] || c;
+  const label = colLabel;
   let h = '<thead><tr><th class="no">줄</th>' + cs.map(c => `<th title="${esc(c)}">${esc(label(c))}</th>`).join('') + '</tr></thead><tbody>';
   P.items.forEach((r, k) => {
     const gaps = gapsOf(r), o = r._i == null ? null : ORIG[r._i], rl = r._rules || {};
@@ -781,7 +782,7 @@ function mark(k, scroll = true, toRow = true) {     // scroll: 원본을 상자�
     const wrap = document.getElementById(`pg-${di}-${pn}`), sz = (P.sizes[di] || [])[pn - 1]; if (!wrap || !sz) return;
     const s = wrap.clientWidth / sz[0], e = document.createElement('div'); e.className = 'hl' + (hot ? ' on' : '');
     e.style.cssText = `left:${x0 * s - 3}px;top:${y0 * s - 3}px;width:${(x1 - x0) * s + 6}px;height:${(y1 - y0) * s + 6}px`;
-    if (c) e.title = (CMP_LABEL[c] || c);
+    if (c) e.title = colLabel(c);
     wrap.appendChild(e); first = first || e; if (hot) on = e;
   });
   first = on || (toRow ? first : null);

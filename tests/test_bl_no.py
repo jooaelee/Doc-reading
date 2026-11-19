@@ -152,3 +152,21 @@ def test_PDF_가_아닌_파일이_하나라도_있으면_아무_작업도_안_�
     r = local.post("/api/jobs", files=[("pdf", ("A1111.pdf", _pdf_bytes(), "application/pdf")),
                                        ("pdf", ("B2222.pdf", b"not a pdf", "application/pdf"))])
     assert r.status_code == 400 and not web.STORE.jobs
+
+
+def test_엑셀_BL_Item_시트는_화면_표와_같은_열과_머리다(tmp_path):
+    out = str(tmp_path / "t.xlsx")
+    row = {c: "" for c in G.ITEM_COLS} | {"BL No.": "HDLCA1", "Purchase Order": "4500012345", "Material": "R1257986",
+                                          "B/L quantity": 3, "Imp.Req. No.": "빠질 값", "Sap Code": "빠질 값"}
+    G.write_tables({"items": [row], "head": [], "inv": [], "review": []}, out)
+    ws = openpyxl.load_workbook(out)["BL Item"]
+    head = [c.value for c in ws[1]]
+    assert head == ["BL No.", "Po No.", "Material Code", "Item name", "Quantity", "단위", "Unit Price", "Invoice amount",
+                    "Currency", "Invoice No.", "출처", "줄", "Vendor Part No."]
+    got = dict(zip(head, [c.value for c in ws[2]]))
+    assert (got["BL No."], got["Po No."], got["Material Code"], got["Quantity"]) == ("HDLCA1", "4500012345", "R1257986", 3)
+    assert "빠질 값" not in got.values()
+    rd = [r[1] for r in openpyxl.load_workbook(out)["읽는 법"].iter_rows(min_row=2, values_only=True) if r and r[0] == "BL Item"]
+    assert "Imp.Req. No." not in rd and "Po No." in rd                      # 읽는 법도 같은 머리
+    # 화면은 payload 의 cols.screen, cols.labels 로 같은 목록을 받는다
+    assert G.SHEET_KEYS[0] == "BL No." and G.SHEET_LABEL["Net Price"] == "Unit Price"

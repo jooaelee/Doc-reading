@@ -628,6 +628,7 @@ def payload(name, pdfs, res, files=None, case="") -> dict:
         "counts": {g: sum(1 for c in checks if c["grade"] == g) for g in ("OK", "WARN", "FAIL")},
         "completeness": res["completeness"],
         "cols": {"gerp": gerp_xlsx.GERP_ITEM_COLS, "gerp_only": gerp_xlsx.GERP_ONLY, "extra": gerp_xlsx.EXTRA_ITEM_COLS,
+                 "screen": gerp_xlsx.SHEET_KEYS, "labels": gerp_xlsx.SHEET_LABEL,
                  "head": gerp_xlsx.GERP_HEAD_COLS, "inv": gerp_xlsx.INV_COLS},
         "sizes": sizes,
         "kinds": res["kinds"],

@@ -6,7 +6,7 @@
 
 시트
   BL Header   선적 한 건의 헤더. GERP 「Change Bill of Lading: General1 (China)」 윗부분.
-  BL Item     품목 줄. 같은 화면 아랫부분의 B/L Item Update 표.
+  BL Item     품목 줄. 고객 화면 표와 같은 열과 머리(SHEET_ITEM_COLS, 11/19 사용자 결정).
   인보이스    묶음에 들어온 인보이스마다 번호와 총액. 여러 장이면 여기서 갈린다.
   핵심 3항목  유상 품목에 사람이 적는 셋(PO, Material, 수량)이 줄마다 찼는지.
   Main 항목   고객 추출 대상(PO No., Material Code, 품명, 부품 번호, 납품 수량, 단위, 단가). 아래 ITEM_SPEC.
@@ -71,7 +71,20 @@ CODE_COLS = [("Sap Code", "sap_code"), ("Po Item No.", "po_item_no"),
 EXTRA_ITEM_COLS = (["Currency", "케이스", "Invoice No.", "BL No.", "출처", "줄", "품명", "단위"]
                    + [c for c, _ in CODE_COLS]
                    + ["Case No.", "순중량(kg)", "총중량(kg)", "HS", "원산지", "NCV 단서"])
-ITEM_COLS = GERP_ITEM_COLS + EXTRA_ITEM_COLS
+ITEM_COLS = GERP_ITEM_COLS + EXTRA_ITEM_COLS       # 줄 값의 열쇠 전부(화면과 엑셀이 나눠 씀)
+
+# 🔴 BL Item 시트와 고객 화면 표의 열과 머리(11/19 사용자 결정). (값의 열쇠, 머리). 값의 열쇠는 그대로 두고 머리만 바꾼다.
+#    여기 없는 열(Imp.Req. No., Item, 서류의 코드 열, 중량, HS, 원산지, NCV 단서)은 화면과 BL Item 시트에서 빼고,
+#    PO 품목 번호, 시리얼 번호, 원산지, HS, 케이스 번호, 중량, NCV 단서는 「Sub 항목」 시트에 남는다.
+#    화면(web/index.html)은 payload 의 cols.screen, cols.labels 로 이 목록을 받는다
+SHEET_ITEM_COLS = [
+    ("BL No.", "BL No."), ("Purchase Order", "Po No."), ("Material", "Material Code"), ("품명", "Item name"),
+    ("B/L quantity", "Quantity"), ("단위", "단위"), ("Net Price", "Unit Price"), ("Invoice amount", "Invoice amount"),
+    ("Currency", "Currency"), ("Invoice No.", "Invoice No."), ("출처", "출처"), ("줄", "줄"),
+    ("Vendor Part No.", "Vendor Part No."),
+]
+SHEET_KEYS = [k for k, _ in SHEET_ITEM_COLS]
+SHEET_LABEL = {k: h for k, h in SHEET_ITEM_COLS if k != h}
 
 # 🔴 항목 정의(’26.11.10 다시 정함). 하이닉스 우시가 준 「BL Item AI판독 주의 사항」(’26.11.04)의
 #    추출 대상을 Main 으로 둔다. 「품명/모델」 은 정확도를 따로 재려고 품명과 부품 번호 두 칸으로 나눈다.
@@ -193,9 +206,8 @@ ORIGIN = [
 ]
 NOTES = [
     "노란색 행: PO 번호 또는 품목 코드 미추출. 해당 행만 확인합니다.",
-    "회색 열: GERP 에서 입력하는 열. 선적 서류에 인쇄되지 않습니다.",
     "출처 PL: 포장명세서에만 존재하는 행. 금액과 단가 없음.",
-    "서류에 인쇄된 코드 열 전체를 병기합니다. Material 이 빈 줄은 이 열들로 원문을 확인합니다.",
+    "PO 품목 번호, 시리얼 번호, 원산지, HS, 케이스 번호, 중량, NCV 단서는 「Sub 항목」 시트에 있습니다.",
     "Main 항목과 Sub 항목의 정의는 「항목 정의」 시트를 봅니다.",
 ]
 
@@ -959,7 +971,7 @@ def write_tables(tables, path):
     add_currency(tables.get("items"), tables.get("inv"))
     wb = openpyxl.Workbook()
     hd = wb.active; hd.title = "BL Header"; hd.append(GERP_HEAD_COLS)
-    it = wb.create_sheet("BL Item"); it.append(ITEM_COLS)
+    it = wb.create_sheet("BL Item"); it.append([h for _, h in SHEET_ITEM_COLS])
     iv = wb.create_sheet("인보이스"); iv.append(INV_COLS)
     c3 = wb.create_sheet("핵심 3항목"); c3.append(CORE3_COLS)
     rq = wb.create_sheet("Main 항목"); rq.append(MAIN_COLS)
@@ -971,14 +983,13 @@ def write_tables(tables, path):
     rd = wb.create_sheet("읽는 법")
 
     yellow = PatternFill("solid", fgColor="FFF2CC")   # 자동으로 못 잇는 줄
-    grey = PatternFill("solid", fgColor="EDEDED")     # GERP 에서 채우는 열
     gap_rows = set()
     n_gap = 0
 
     for r in tables.get("head") or []:
         hd.append([r.get(c, "") for c in GERP_HEAD_COLS])
     for r in tables.get("items") or []:
-        it.append([r.get(c, "") for c in ITEM_COLS])
+        it.append([r.get(c, "") for c in SHEET_KEYS])
         if not str(r.get("Purchase Order", "")).strip() or (not str(r.get("Material", "")).strip()
                                                             and not str(r.get("Vendor Part No.", "")).strip()):
             n_gap += 1
@@ -1010,16 +1021,12 @@ def write_tables(tables, path):
     for tier, label, col, how, w, note in ITEM_SPEC:
         df.append([tier, label, col, COMPARE_NAME[how], "예" if w else "", note])
 
-    # GERP 가 채우는 열은 바탕을 달리해서 빈칸이 실수로 안 보이게 한다.
-    # 노란 줄은 덮지 않는다. 사람이 먼저 봐야 할 표시가 그쪽이다.
-    for c in GERP_ONLY:
-        col = get_column_letter(ITEM_COLS.index(c) + 1)
-        for cell in it[col]:
-            if cell.row > 1 and cell.row not in gap_rows:
-                cell.fill = grey
-
     rd.append(["시트", "열", "어디서 오나", "설명"])
     for row in ORIGIN:
+        if row[0] == "BL Item":
+            if row[1] not in SHEET_KEYS:
+                continue            # 화면과 BL Item 시트에서 뺀 열
+            row = (row[0], SHEET_LABEL.get(row[1], row[1])) + tuple(row[2:])
         rd.append(list(row))
     rd.append([])
     for n in NOTES:

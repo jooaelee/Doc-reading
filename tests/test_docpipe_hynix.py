@@ -375,13 +375,13 @@ class 데모_화면(unittest.TestCase):
 
         import gerp_xlsx as X
         rows = [{c: "" for c in X.ITEM_COLS}]
-        rows[0].update({"Imp.Req. No.": "사람이 적은 값", "Purchase Order": "PO1",
+        rows[0].update({"Purchase Order": "사람이 적은 값",
                         "Material": "M1", "B/L quantity": 3})
         with tempfile.TemporaryDirectory() as d:
             out = os.path.join(d, "t.xlsx")
             X.write_tables({"items": rows, "head": [], "inv": [], "review": []}, out)
             ws = openpyxl.load_workbook(out)["BL Item"]
-            i = [c.value for c in ws[1]].index("Imp.Req. No.")
+            i = [c.value for c in ws[1]].index("Po No.")      # 머리는 화면과 같은 이름(SHEET_ITEM_COLS)
             self.assertEqual(ws.cell(row=2, column=i + 1).value, "사람이 적은 값")
 
     def test_못_잇는_줄이_표시된다(self):
